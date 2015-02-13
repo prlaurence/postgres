@@ -1,5 +1,5 @@
 /*
- * pgaudit/pgaudit.c
+ * pg_audit/pg_audit.c
  *
  * An auditing extension for PostgreSQL. Improves on standard statement logging
  * by adding more logging classes, object level logging, and providing

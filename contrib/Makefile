@@ -29,6 +29,7 @@ SUBDIRS = \
 		pageinspect	\
 		passwordcheck	\
 		pg_archivecleanup \
+		pg_audit	\
 		pg_buffercache	\
 		pg_freespacemap \
 		pg_prewarm	\
