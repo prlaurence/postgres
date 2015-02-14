@@ -148,7 +148,7 @@ if ($bHelp)
 # Global variables
 ################################################################################
 my $hDb;					# Connection to Postgres
-my $strLogExpected = '';	# The expected log compared with grepping AUDIT 
+my $strLogExpected = '';	# The expected log compared with grepping AUDIT
 							# entries from the postgres log.
 
 my $strDatabase = 'postgres';	# Connected database (modified by PgSetDatabase)
@@ -231,13 +231,13 @@ sub CommandExecute
 {
 	my $strCommand = shift;
 	my $bSuppressError = shift;
-	
+
 	# Set default
 	$bSuppressError = defined($bSuppressError) ? $bSuppressError : false;
-	
+
 	# Run the command
 	my $iResult = system($strCommand);
-	
+
 	if ($iResult != 0 && !$bSuppressError)
 	{
 		confess "command '${strCommand}' failed with error ${iResult}";
@@ -259,7 +259,7 @@ sub log
 	{
 		print "${strMessage}\n";
 	}
-	
+
 	if ($bError)
 	{
 		exit 1;
@@ -274,14 +274,14 @@ sub ArrayToString
 	my @stryArray = @_;
 
 	my $strResult = '';
-	
+
 	for (my $iIndex = 0; $iIndex < @stryArray; $iIndex++)
 	{
 		if ($iIndex != 0)
 		{
 			$strResult .= ', ';
 		}
-		
+
 		$strResult .= $stryArray[$iIndex];
 	}
 
@@ -314,7 +314,7 @@ sub PgConnect
 
 	# Log Connection
 	&log("   DB: connect user ${strUser}, database ${strDatabase}");
-	
+
 	# Disconnect user session
 	PgDisconnect();
 
@@ -399,7 +399,7 @@ sub PgSetUser
 		$strCurrentAuditLog ne $strTemporaryAuditLog)
 	{
 		$strCurrentAuditLog = $strTemporaryAuditLog;
-		
+
 		PgStop();
 		PgStart();
 	}
@@ -420,7 +420,7 @@ sub SaveString
 
 	# Open the file for writing
 	my $hFile;
-	
+
 	open($hFile, '>', $strFile)
 		or confess "unable to open ${strFile}";
 
@@ -429,7 +429,7 @@ sub SaveString
 		syswrite($hFile, $strString)
 			or confess "unable to write to ${strFile}: $!";
 	}
-		
+
 	close($hFile);
 }
 
@@ -471,7 +471,7 @@ sub PgLogExpect
 	my $strCommand = shift;
 	my $strSql = shift;
 	my $oData = shift;
-	
+
 	# If oData is false then no logging
 	if (defined($oData) && ref($oData) eq '' && !$oData)
 	{
@@ -506,7 +506,7 @@ sub PgLogExpect
 		}
 
 		my $strObjectName = '';
-		
+
 		if (defined($oData) && ref($oData) ne 'ARRAY')
 		{
 			$strObjectName = $oData;
@@ -515,7 +515,7 @@ sub PgLogExpect
 		my $strLog .= "SESSION,${strClass},${strCommandLog}," .
 					  "${strObjectType},${strObjectName},${strSql}";
 		&log("AUDIT: ${strLog}");
-		
+
 		$strLogExpected .= "${strLog}\n";
 	}
 
@@ -543,7 +543,7 @@ sub PgLogExpect
 				$strLogExpected .= "${strLog}\n";
 			}
 		}
-		
+
 		$oData = undef;
 	}
 }
@@ -565,12 +565,12 @@ sub PgShouldLog
 
 	# Check logging for the role
 	my $bLog = undef;
-	
+
 	if (defined($oAuditLogHash{&CONTEXT_ROLE}{$strUser}))
 	{
 		$bLog = $oAuditLogHash{&CONTEXT_ROLE}{$strUser}{$strClass};
 	}
-	
+
 	# Else check logging for the db
 	elsif (defined($oAuditLogHash{&CONTEXT_DATABASE}{$strDatabase}))
 	{
@@ -592,7 +592,7 @@ sub PgShouldLog
 sub PgLogWait
 {
 	my $strLogActual;
-	
+
 	# Run in an eval block since grep returns 1 when nothing was found
 	eval
 	{
@@ -604,12 +604,12 @@ sub PgLogWait
 	if ($@)
 	{
 		my $iExitStatus = $? >> 8;
-		
+
 		if ($iExitStatus != 1)
 		{
 			confess "grep returned ${iExitStatus}";
 		}
-		
+
 		$strLogActual = '';
 	}
 
@@ -701,8 +701,8 @@ sub PgStart
 				   "-c port=${iPort}" .
 				   " -c unix_socket_directories='/tmp'" .
 				   " -c shared_preload_libraries='pg_audit'" .
-				   " -c log_min_messages=debug1" . 
-				   " -c log_line_prefix='prefix '" . 
+				   " -c log_min_messages=debug1" .
+				   " -c log_line_prefix='prefix '" .
 				   # " -c log_destination='stderr,csvlog'" .
 				   # " -c logging_collector=on" .
 				   (defined($strCurrentAuditLog) ?
@@ -727,7 +727,7 @@ sub PgAuditLogSet
 	# Create SQL to set the GUC
 	my $strCommand;
 	my $strSql;
-	
+
 	if ($strContext eq CONTEXT_GLOBAL)
 	{
 		$strCommand = COMMAND_SET;
@@ -768,7 +768,7 @@ sub PgAuditLogSet
 			$oAuditLogHash{$strContext}{$strName}{&CLASS_READ} = true;
 			$oAuditLogHash{$strContext}{$strName}{&CLASS_WRITE} = true;
 		}
-		
+
 		if (index($strClass, '-') == 0)
 		{
 			$strClass = substr($strClass, 1);
@@ -798,7 +798,7 @@ sub PgAuditGrantSet
 	PgLogExecute(COMMAND_GRANT, "grant " . lc(${strPrivilege}) .
 								(defined($strColumn) ? " (${strColumn})" : '') .
 								" on ${strObject} to ${strRole}");
-	
+
 	$oAuditGrantHash{$strRole}{$strObject}{$strPrivilege} = true;
 }
 
@@ -816,7 +816,7 @@ sub PgAuditGrantReset
 	PgLogExecute(COMMAND_REVOKE, "revoke " . lc(${strPrivilege}) .
 				 (defined($strColumn) ? " (${strColumn})" : '') .
 				 " on ${strObject} from ${strRole}");
-	
+
 	delete($oAuditGrantHash{$strRole}{$strObject}{$strPrivilege});
 }
 
@@ -876,7 +876,7 @@ PgAuditGrantSet($strAuditRole, &COMMAND_INSERT, 'public.test3');
 			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
 			 &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_INSERT,
-			 'with cte as (select id from test2)' . 
+			 'with cte as (select id from test2)' .
 			 ' insert into test3 select id from cte',
 			 \@oyTable);
 
@@ -1040,7 +1040,7 @@ PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.account_role_map');
 			 &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT,
 			 'select account.password, account_role_map.role_id from account' .
-			 ' inner join account_role_map' . 
+			 ' inner join account_role_map' .
 			 ' on account.id = account_role_map.account_id',
 			 \@oyTable);
 
@@ -1095,7 +1095,7 @@ PgLogExecute(COMMAND_COPY_FROM,
 
 # Test prepared SELECT
 PgLogExecute(COMMAND_PREPARE_READ,
-			 'PREPARE pgclassstmt (oid) as select *' . 
+			 'PREPARE pgclassstmt (oid) as select *' .
 			 ' from pg_class where oid = $1');
 PgLogExecute(COMMAND_EXECUTE_READ,
 			 'EXECUTE pgclassstmt (1)');

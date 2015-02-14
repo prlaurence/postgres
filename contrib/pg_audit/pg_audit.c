@@ -79,7 +79,7 @@ static uint64 auditLogBitmap = 0;
 #define AUDIT_TYPE_OBJECT	"OBJECT"
 #define AUDIT_TYPE_SESSION	"SESSION"
 
-/* 
+/*
  * String contants for log classes - used when processing tokens in the
  * pgaudit.log GUC.
  */
@@ -341,7 +341,7 @@ log_acl_check(Datum aclDatum, Oid auditOid, AclMode mask)
 				aclItem->ai_grantee == auditOid)
 				continue;
 
-			/* 
+			/*
 			 * Check that the role has the required privileges and that it is
 			 * inherited by auditOid.
 			 */
@@ -491,7 +491,7 @@ log_attribute_check_any(Oid relOid,
 
 	/* Free the column set */
 	bms_free(tmpSet);
-	
+
 	return result;
 }
 
@@ -520,13 +520,13 @@ log_dml(Oid auditOid, List *rangeTabls)
 		 */
 		relOid = rte->relid;
 		rel = relation_open(relOid, NoLock);
-		
+
 		if (IsSystemNamespace(RelationGetNamespace(rel)))
 		{
 			relation_close(rel, NoLock);
 			return;
 		}
-		
+
 		/*
 		 * We don't have access to the parsetree here, so we have to generate
 		 * the node type, object type, and command tag by decoding
@@ -561,7 +561,7 @@ log_dml(Oid auditOid, List *rangeTabls)
 			auditEvent.command = COMMAND_UNKNOWN;
 		}
 
-		/* 
+		/*
 		 * Fill values in the event struct that are required for session
 		 * logging.
 		 */
@@ -632,7 +632,7 @@ log_dml(Oid auditOid, List *rangeTabls)
 		{
 			AclMode auditPerms = (ACL_SELECT | ACL_UPDATE | ACL_INSERT) &
 								 rte->requiredPerms;
-			
+
 			/*
 			 * If any of the required permissions for the relation are granted
 			 * to the audit role then audit the relation
@@ -648,7 +648,7 @@ log_dml(Oid auditOid, List *rangeTabls)
 			 */
 			else if (auditPerms != 0)
 			{
-				/* 
+				/*
 				 * Check the select columns to see if the audit role has
 				 * priveleges on any of them.
 				 */
@@ -667,7 +667,7 @@ log_dml(Oid auditOid, List *rangeTabls)
 				if (!auditEvent.granted)
 				{
 					auditPerms &= (ACL_INSERT | ACL_UPDATE);
-					
+
 					if (auditPerms)
 					{
 						auditEvent.granted =
@@ -720,7 +720,7 @@ log_create_alter_drop(Oid classId,
 				                       RelationGetNamespace(rel)),
 									   RelationGetRelationName(rel));
 		relation_close(rel, NoLock);
-		
+
 		/* Set object type based on relkind */
 		switch (class->relkind)
 		{
@@ -805,7 +805,7 @@ log_function_execute(Oid objectId)
 	utilityAuditEvent.command = COMMAND_EXECUTE;
 	utilityAuditEvent.objectType = OBJECT_TYPE_FUNCTION;
 	utilityAuditEvent.commandText = debug_query_string;
-	
+
 	log_audit_event(&utilityAuditEvent);
 	utilityCommandLogged = true;
 }
@@ -863,7 +863,7 @@ log_object_access(ObjectAccessType access,
 			log_create_alter_drop(classId, objectId);
 		}
 		break;
-		
+
 		/* All others processed by log_utility_command() */
 		default:
 			break;
@@ -879,7 +879,7 @@ static object_access_hook_type next_object_access_hook = NULL;
 
 /*
  * Hook ExecutorCheckPerms to do session and object auditing for DML.
- */ 
+ */
 static bool
 pgaudit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
 {
@@ -898,7 +898,7 @@ pgaudit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
 
 /*
  * Hook ProcessUtility to do session auditing for DDL and utility commands.
- */ 
+ */
 static void
 pgaudit_ProcessUtility_hook(Node *parsetree,
 							const char *queryString,
@@ -939,7 +939,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
  * Hook object_access_hook to provide fully-qualified object names for execute,
  * create, drop, and alter commands.  Most of the audit information is filled in
  * by log_utility_command().
- */ 
+ */
 static void
 pgaudit_object_access_hook(ObjectAccessType access,
 						   Oid classId,

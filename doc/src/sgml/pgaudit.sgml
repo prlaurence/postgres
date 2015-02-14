@@ -22,7 +22,7 @@
       includes the audit type (e.g. <literal>SESSION</literal>), command type
       (e.g. <literal>CREATE TABLE</literal>, <literal>SELECT</literal>) and
       statement (e.g. <literal>"select * from test"</literal>).
-      
+
       Fully-qualified names and object types will be logged for
       <literal>CREATE</literal>, <literal>UPDATE</literal>, and
       <literal>DROP</literal> commands on <literal>TABLE</literal>,
@@ -93,7 +93,7 @@ pgaudit.log = 'all, -misc'
 
     <sect3>
       <title>Examples</title>
-      
+
       <para>
         Set <literal>pgaudit.log = 'read, ddl'</literal> in
         <literal>postgresql.conf</literal>.
@@ -114,7 +114,7 @@ create table account
 
 select *
     from account;
-    
+
 insert into account (id, name, password, description)
              values (1, 'user1', 'HASH1', 'blah, blah');
       </programlisting>
@@ -122,7 +122,7 @@ insert into account (id, name, password, description)
       <para>
         Log Output:
       </para>
-      
+
       <programlisting>
 AUDIT: SESSION,DDL,CREATE TABLE,TABLE,public.account,create table account
 (
@@ -148,7 +148,7 @@ AUDIT: SESSION,READ,SELECT,,,select *
 
     <sect3>
       <title>Configuration</title>
-      
+
       <para>
         Object-level auditing is implemented via the roles system.  The
         <literal>pgaudit.role</literal> GUC defines the role that will be used
@@ -156,7 +156,7 @@ AUDIT: SESSION,READ,SELECT,,,select *
         permissions for the command executed or inherits the permissions from
         another role.
       </para>
-      
+
       <programlisting>
 postresql.conf: pgaudit.role = 'audit'
 
@@ -176,7 +176,7 @@ grant select, delete
       <para>
         SQL:
       </para>
-      
+
         <programlisting>
 create table account
 (
@@ -189,34 +189,34 @@ create table account
 grant select (password)
    on public.account
    to audit;
-   
+
 select id, name
   from account;
 
 select password
   from account;
-  
+
 grant update (name, password)
    on public.account
    to audit;
-   
+
 update account
    set description = 'yada, yada';
-   
+
 update account
    set password = 'HASH2';
-   
+
 create table account_role_map
 (
     account_id int,
     role_id int
 );
-       
+
 grant select
    on public.account_role_map
    to audit;
-   
-select account.password, 
+
+select account.password,
        account_role_map.role_id
   from account
        inner join account_role_map
@@ -226,18 +226,18 @@ select account.password,
       <para>
         Log Output:
       </para>
-      
+
       <programlisting>
 AUDIT: OBJECT,READ,SELECT,TABLE,public.account,select password
   from account
 AUDIT: OBJECT,WRITE,UPDATE,TABLE,public.account,update account
    set password = 'HASH2'
-AUDIT: OBJECT,READ,SELECT,TABLE,public.account,select account.password, 
+AUDIT: OBJECT,READ,SELECT,TABLE,public.account,select account.password,
        account_role_map.role_id
   from account
        inner join account_role_map
             on account.id = account_role_map.account_id
-AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password, 
+AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password,
        account_role_map.role_id
   from account
        inner join account_role_map
@@ -252,7 +252,7 @@ AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password,
     <para>
       Audit entries are written to the standard logging facility and contain
       the following columns in comma-separated format:
-      
+
       <note>
         <para>
           Output is not in compliant CSV format.  If machine-readability is
@@ -260,7 +260,7 @@ AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password,
           <literal>log_destination = 'csvlog'</literal>.
         </para>
       </note>
-      
+
       <itemizedlist>
         <listitem>
           <para>
