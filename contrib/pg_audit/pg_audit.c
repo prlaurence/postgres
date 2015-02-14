@@ -174,9 +174,6 @@ audit_role_oid()
 	HeapTuple roleTup;
 	Oid oid = InvalidOid;
 
-	ereport(DEBUG1, (errmsg("looking up audit role %s", auditRole),
-	                        errhidestmt(true)));
-
 	roleTup = SearchSysCache1(AUTHNAME, PointerGetDatum(auditRole));
 
 	if (HeapTupleIsValid(roleTup))
@@ -206,10 +203,6 @@ log_check(AuditEvent *e, const char **classname)
 	 * Look at the type of the command and decide what LogClass needs to be
 	 * enabled for the command to be logged.
 	 */
-	ereport(DEBUG1, (errmsg("audit log level %d, command tag %d",
-							e->logStmtLevel, e->commandTag),
-							errhidestmt(true)));
-
 	switch (e->logStmtLevel)
 	{
 		case LOGSTMT_MOD:
@@ -261,17 +254,12 @@ log_check(AuditEvent *e, const char **classname)
 	 */
 	if (e->granted)
 	{
-		ereport(DEBUG1, (errmsg("pgaudit based on grants"), errhidestmt(true)));
-
 		return true;
 	}
 
 	/* 2. If the event belongs to a class covered by pgaudit.log. */
 	if ((auditLogBitmap & class) == class)
 	{
-		ereport(DEBUG1, (errmsg("pgaudit based on log setting"),
-								errhidestmt(true)));
-
 		return true;
 	}
 
@@ -468,9 +456,6 @@ log_attribute_check_any(Oid relOid,
 		AttrNumber	nattrs;
 		AttrNumber	curr_att;
 
-		ereport(DEBUG1, (errmsg("pg_audit bms empty"),
-								errhidestmt(true)));
-
 		/* Get relation to determine total attribute */
 		classTuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relOid));
 
@@ -645,20 +630,15 @@ log_dml(Oid auditOid, List *rangeTabls)
 		/* Perform object auditing only if the audit role is valid */
 		if (auditOid != InvalidOid)
 		{
-			ereport(DEBUG1, (errmsg("checking table %s, sql %s",
-									auditEvent.objectName,
-									auditEvent.commandText),
-									errhidestmt(true)));
-
+			AclMode auditPerms = (ACL_SELECT | ACL_UPDATE | ACL_INSERT) &
+								 rte->requiredPerms;
+			
 			/*
 			 * If any of the required permissions for the relation are granted
 			 * to the audit role then audit the relation
 			 */
-			if (log_relation_check(relOid, auditOid, rte->requiredPerms))
+			if (log_relation_check(relOid, auditOid, auditPerms))
 			{
-				ereport(DEBUG1, (errmsg("pg_audit relation check"),
-										errhidestmt(true)));
-				
 				auditEvent.granted = true;
 			}
 
@@ -666,14 +646,13 @@ log_dml(Oid auditOid, List *rangeTabls)
 			 * Else check if the audit role has column-level permissions for
 			 * select, insert, or update.
 			 */
-			else if ((rte->requiredPerms &
-					 (ACL_SELECT | ACL_INSERT | ACL_UPDATE)) != 0)
+			else if (auditPerms != 0)
 			{
 				/* 
 				 * Check the select columns to see if the audit role has
 				 * priveleges on any of them.
 				 */
-				if (rte->requiredPerms & ACL_SELECT)
+				if (auditPerms & ACL_SELECT)
 				{
 					auditEvent.granted =
 						log_attribute_check_any(relOid, auditOid,
@@ -687,15 +666,14 @@ log_dml(Oid auditOid, List *rangeTabls)
 				 */
 				if (!auditEvent.granted)
 				{
-					AclMode requiredPerms = (ACL_UPDATE | ACL_INSERT) &
-											 rte->requiredPerms;
+					auditPerms &= (ACL_INSERT | ACL_UPDATE);
 					
-					if (requiredPerms)
+					if (auditPerms)
 					{
 						auditEvent.granted =
 							log_attribute_check_any(relOid, auditOid,
 													rte->modifiedCols,
-													requiredPerms);
+													auditPerms);
 					}
 				}
 			}
@@ -992,9 +970,6 @@ check_pgaudit_log(char **newval, void **extra, GucSource source)
 	char *rawval;
 	ListCell *lt;
 	uint64 *f;
-
-	ereport(DEBUG1, (errmsg("pgaudit.log check %s", *newval),
-					 errhidestmt(true)));
 
 	/* Make sure newval is a comma-separated list of tokens. */
 	rawval = pstrdup(*newval);

@@ -528,7 +528,8 @@ sub PgLogExpect
 			my $strObjectName = ${$oTableHash}{&NAME};
 			my $strCommandLog = ${$oTableHash}{&COMMAND};
 
-			if (defined($oAuditGrantHash{$strAuditRole}{$strObjectName}{$strCommandLog}))
+			if (defined($oAuditGrantHash{$strAuditRole}
+										{$strObjectName}{$strCommandLog}))
 			{
 				my $strCommandLog = defined(${$oTableHash}{&COMMAND_LOG}) ?
 					${$oTableHash}{&COMMAND_LOG} : $strCommandLog;
