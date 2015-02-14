@@ -95,10 +95,15 @@ pgaudit.log = 'all, -misc'
       <title>Examples</title>
       
       <para>
-        The following examples assume that
-        <literal>pgaudit.log = 'read, dll'</literal>.
-      
-        <programlisting>
+        Set <literal>pgaudit.log = 'read, ddl'</literal> in
+        <literal>postgresql.conf</literal>.
+      </para>
+
+      <para>
+        SQL:
+      </para>
+
+      <programlisting>
 create table account
 (
     id int,
@@ -112,11 +117,13 @@ select *
     
 insert into account (id, name, password, description)
              values (1, 'user1', 'HASH1', 'blah, blah');
-        </programlisting>
+      </programlisting>
 
+      <para>
         Log Output:
-
-        <programlisting>
+      </para>
+      
+      <programlisting>
 AUDIT: SESSION,DDL,CREATE TABLE,TABLE,public.account,create table account
 (
     id int,
@@ -126,8 +133,7 @@ AUDIT: SESSION,DDL,CREATE TABLE,TABLE,public.account,create table account
 );
 AUDIT: SESSION,READ,SELECT,,,select *
     from account
-        </programlisting>
-      </para> 
+      </programlisting>
     </sect3>
   </sect2>
 
@@ -163,8 +169,13 @@ grant select, delete
       <title>Examples</title>
 
       <para>
-        The following examples assume that
-        <literal>pgaudit.log = 'read, dll'</literal>.
+        Set <literal>pgaudit.role = 'audit'</literal> in
+        <literal>postgresql.conf</literal>.
+      </para>
+
+      <para>
+        SQL:
+      </para>
       
         <programlisting>
 create table account
@@ -212,8 +223,11 @@ select account.password,
             on account.id = account_role_map.account_id
         </programlisting>
 
+      <para>
         Log Output:
-        <programlisting>
+      </para>
+      
+      <programlisting>
 AUDIT: OBJECT,READ,SELECT,TABLE,public.account,select password
   from account
 AUDIT: OBJECT,WRITE,UPDATE,TABLE,public.account,update account
@@ -228,8 +242,7 @@ AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password,
   from account
        inner join account_role_map
             on account.id = account_role_map.account_id
-        </programlisting>
-      </para>
+      </programlisting>
     </sect3>
   </sect2>
 
