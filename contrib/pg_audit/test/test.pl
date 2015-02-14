@@ -849,9 +849,11 @@ PgLogExecute(COMMAND_SELECT, 'select * from test');
 PgLogExecute(COMMAND_DROP_TABLE, 'drop table test', 'public.test');
 
 PgSetUser('user2');
-PgLogExecute(COMMAND_CREATE_TABLE, 'create table test2 (id int)', 'public.test2');
+PgLogExecute(COMMAND_CREATE_TABLE,
+             'create table test2 (id int)', 'public.test2');
 PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.test2');
-PgLogExecute(COMMAND_CREATE_TABLE, 'create table test3 (id int)', 'public.test2');
+PgLogExecute(COMMAND_CREATE_TABLE,
+             'create table test3 (id int)', 'public.test2');
 
 # Catalog select should not log
 PgLogExecute(COMMAND_SELECT, 'select * from pg_class limit 1',
@@ -873,44 +875,60 @@ PgAuditGrantSet($strAuditRole, &COMMAND_INSERT, 'public.test3');
 			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
 			 &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_INSERT,
-			 'with cte as (select id from test2) insert into test3 select id from cte',
+			 'with cte as (select id from test2)' . 
+			 ' insert into test3 select id from cte',
 			 \@oyTable);
 
-@oyTable = ({&NAME => 'public.test2', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_INSERT},
-			 {&NAME => 'public.test3', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_INSERT});
-PgLogExecute(COMMAND_INSERT, 'with cte as (insert into test3 values (1) returning id) insert into test2 select id from cte',
-							   \@oyTable);
+@oyTable = ({&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_INSERT},
+			{&NAME => 'public.test3', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_INSERT});
+PgLogExecute(COMMAND_INSERT,
+			 'with cte as (insert into test3 values (1) returning id)' .
+			 ' insert into test2 select id from cte',
+			 \@oyTable);
 
 PgAuditGrantSet($strAuditRole, &COMMAND_UPDATE, 'public.test2');
 
-@oyTable = ({&NAME => 'public.test3', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_INSERT},
-			 {&NAME => 'public.test2', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_UPDATE});
-PgLogExecute(COMMAND_INSERT, 'with cte as (update test2 set id = 1 returning id) insert into test3 select id from cte',
-							  \@oyTable);
+@oyTable = ({&NAME => 'public.test3', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_INSERT},
+			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_UPDATE});
+PgLogExecute(COMMAND_INSERT,
+             'with cte as (update test2 set id = 1 returning id)' .
+			 ' insert into test3 select id from cte',
+			 \@oyTable);
 
-@oyTable = ({&NAME => 'public.test3', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_UPDATE},
-			 {&NAME => 'public.test2', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_INSERT},
-			 {&NAME => 'public.test2', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_INSERT});
-PgLogExecute(COMMAND_UPDATE, 'with cte as (insert into test2 values (1) returning id) update test3 set id = cte.id ' .
-							  'from cte where test3.id <> cte.id',
-							  \@oyTable);
+@oyTable = ({&NAME => 'public.test3', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_UPDATE},
+			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_INSERT},
+			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_INSERT});
+PgLogExecute(COMMAND_UPDATE,
+			 'with cte as (insert into test2 values (1) returning id)' .
+			 ' update test3 set id = cte.id' .
+			 ' from cte where test3.id <> cte.id',
+			 \@oyTable);
 
 PgSetUser('postgres');
 PgAuditLogSet(CONTEXT_ROLE, 'user2', (CLASS_NONE));
 PgSetUser('user2');
 
 # Column-based audits
-PgLogExecute(COMMAND_CREATE_TABLE, 'create table test4 (id int, name text)', 'public.test4');
-PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.test4', 'name');
-PgAuditGrantSet($strAuditRole, &COMMAND_UPDATE, 'public.test4', 'id');
-PgAuditGrantSet($strAuditRole, &COMMAND_INSERT, 'public.test4', 'name');
+PgLogExecute(COMMAND_CREATE_TABLE,
+			 'create table test4 (id int, name text)', 'public.test4');
+PgAuditGrantSet($strAuditRole, COMMAND_SELECT, 'public.test4', 'name');
+PgAuditGrantSet($strAuditRole, COMMAND_UPDATE, 'public.test4', 'id');
+PgAuditGrantSet($strAuditRole, COMMAND_INSERT, 'public.test4', 'name');
 
 # Select
 @oyTable = ();
 PgLogExecute(COMMAND_SELECT, 'select id from public.test4',
 							  \@oyTable);
 
-@oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_SELECT});
+@oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select name from public.test4',
 							  \@oyTable);
 
@@ -919,7 +937,8 @@ PgLogExecute(COMMAND_SELECT, 'select name from public.test4',
 PgLogExecute(COMMAND_INSERT, 'insert into public.test4 (id) values (1)',
 							   \@oyTable);
 
-@oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_INSERT});
+@oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_INSERT});
 PgLogExecute(COMMAND_INSERT, "insert into public.test4 (name) values ('test')",
 							  \@oyTable);
 
@@ -928,13 +947,16 @@ PgLogExecute(COMMAND_INSERT, "insert into public.test4 (name) values ('test')",
 PgLogExecute(COMMAND_UPDATE, "update public.test4 set name = 'foo'",
 							   \@oyTable);
 
-@oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_UPDATE});
+@oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_UPDATE});
 PgLogExecute(COMMAND_UPDATE, "update public.test4 set id = 1",
 							  \@oyTable);
 
-@oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_UPDATE});
-PgLogExecute(COMMAND_UPDATE, "update public.test4 set name = 'foo' where name = 'bar'",
-							  \@oyTable);
+@oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE,
+            &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_UPDATE});
+PgLogExecute(COMMAND_UPDATE,
+			 "update public.test4 set name = 'foo' where name = 'bar'",
+			 \@oyTable);
 
 # Drop test tables
 PgLogExecute(COMMAND_DROP_TABLE, "drop table test2", 'public.test2');
@@ -956,9 +978,14 @@ PgSetUser('postgres');
 PgAuditLogSet(CONTEXT_GLOBAL, undef, (CLASS_DDL, CLASS_READ));
 PgSetUser('user1');
 
-PgLogExecute(COMMAND_CREATE_TABLE, 'create table account (id int, name text, password text, description text)', 'public.account');
-PgLogExecute(COMMAND_SELECT, 'select * from account');
-PgLogExecute(COMMAND_INSERT, "insert into account (id, name, password, description) values (1, 'user1', 'HASH1', 'blah, blah')");
+PgLogExecute(COMMAND_CREATE_TABLE,
+			 'create table account (id int, name text, password text,' .
+			 ' description text)', 'public.account');
+PgLogExecute(COMMAND_SELECT,
+			 'select * from account');
+PgLogExecute(COMMAND_INSERT,
+			 "insert into account (id, name, password, description)" .
+			 " values (1, 'user1', 'HASH1', 'blah, blah')");
 &log("AUDIT: <nothing logged>");
 
 # Now tests for object logging
@@ -976,18 +1003,21 @@ PgLogExecute(COMMAND_SELECT, 'select id, name from account',
 							  \@oyTable);
 &log("AUDIT: <nothing logged>");
 
-@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_SELECT});
+@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select password from account',
 							  \@oyTable);
 
-PgAuditGrantSet($strAuditRole, &COMMAND_UPDATE, 'public.account', 'name, password');
+PgAuditGrantSet($strAuditRole, &COMMAND_UPDATE,
+                'public.account', 'name, password');
 
 @oyTable = ();
 PgLogExecute(COMMAND_UPDATE, "update account set description = 'yada, yada'",
 							  \@oyTable);
 &log("AUDIT: <nothing logged>");
 
-@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_UPDATE});
+@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_UPDATE});
 PgLogExecute(COMMAND_UPDATE, "update account set password = 'HASH2'",
 							  \@oyTable);
 
@@ -998,15 +1028,23 @@ PgSetUser('postgres');
 PgAuditLogSet(CONTEXT_ROLE, 'user1', (CLASS_READ, CLASS_WRITE));
 PgSetUser('user1');
 
-PgLogExecute(COMMAND_CREATE_TABLE, 'create table account_role_map (account_id int, role_id int)', 'public.account_role_map');
+PgLogExecute(COMMAND_CREATE_TABLE,
+             'create table account_role_map (account_id int, role_id int)',
+			 'public.account_role_map');
 PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.account_role_map');
 
-@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_SELECT},
-			 {&NAME => 'public.account_role_map', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_SELECT});
-PgLogExecute(COMMAND_SELECT, 'select account.password, account_role_map.role_id from account inner join account_role_map on account.id = account_role_map.account_id',
-							  \@oyTable);
+@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
+	 		 &COMMAND => &COMMAND_SELECT},
+			{&NAME => 'public.account_role_map', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_SELECT});
+PgLogExecute(COMMAND_SELECT,
+			 'select account.password, account_role_map.role_id from account' .
+			 ' inner join account_role_map' . 
+			 ' on account.id = account_role_map.account_id',
+			 \@oyTable);
 
-@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_SELECT});
+@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select password from account',
 							  \@oyTable);
 
@@ -1015,11 +1053,15 @@ PgLogExecute(COMMAND_UPDATE, "update account set description = 'yada, yada'",
 							  \@oyTable);
 &log("AUDIT: <nothing logged>");
 
-@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_UPDATE});
-PgLogExecute(COMMAND_UPDATE, "update account set description = 'yada, yada' where password = 'HASH2'",
-							  \@oyTable);
+@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_UPDATE});
+PgLogExecute(COMMAND_UPDATE,
+			 "update account set description = 'yada, yada'" .
+			 " where password = 'HASH2'",
+			 \@oyTable);
 
-@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE, &COMMAND => &COMMAND_UPDATE});
+@oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
+			 &COMMAND => &COMMAND_UPDATE});
 PgLogExecute(COMMAND_UPDATE, "update account set password = 'HASH2'",
 							  \@oyTable);
 
@@ -1044,15 +1086,16 @@ PgLogExecute(COMMAND_INSERT,
 			 "CREATE TABLE test.pg_class as select * from pg_class",
 			 undef, false, true);
 PgLogExecute(COMMAND_INSERT,
-			 "COPY test.pg_class from '" . abs_path($strTestPath) . "/class.out'",
-			 undef, true, false);
+			 "COPY test.pg_class from '" . abs_path($strTestPath) .
+			 "/class.out'", undef, true, false);
 PgLogExecute(COMMAND_COPY_FROM,
-			 "COPY test.pg_class from '" . abs_path($strTestPath) . "/class.out'",
-			 undef, false, true);
+			 "COPY test.pg_class from '" . abs_path($strTestPath) .
+			 "/class.out'", undef, false, true);
 
 # Test prepared SELECT
 PgLogExecute(COMMAND_PREPARE_READ,
-			 'PREPARE pgclassstmt (oid) as select * from pg_class where oid = $1');
+			 'PREPARE pgclassstmt (oid) as select *' . 
+			 ' from pg_class where oid = $1');
 PgLogExecute(COMMAND_EXECUTE_READ,
 			 'EXECUTE pgclassstmt (1)');
 PgLogExecute(COMMAND_DEALLOCATE,
@@ -1074,7 +1117,8 @@ PgLogExecute(COMMAND_COMMIT,
 PgLogExecute(COMMAND_CREATE_TABLE,
 			 'create table test.test_insert (id int)', 'test.test_insert');
 PgLogExecute(COMMAND_PREPARE_WRITE,
-			 'PREPARE pgclassstmt (oid) as insert into test.test_insert (id) values ($1)');
+			 'PREPARE pgclassstmt (oid) as insert' .
+			 ' into test.test_insert (id) values ($1)');
 PgLogExecute(COMMAND_INSERT,
 			 'EXECUTE pgclassstmt (1)', undef, true, false);
 PgLogExecute(COMMAND_EXECUTE_WRITE,
@@ -1082,10 +1126,12 @@ PgLogExecute(COMMAND_EXECUTE_WRITE,
 
 # Create a table with a primary key
 PgLogExecute(COMMAND_CREATE_TABLE,
-			 'create table test (id int primary key, name text, description text)',
+			 'create table test (id int primary key, name text,' .
+			 'description text)',
 			 'public.test', true, false);
 PgLogExecute(COMMAND_CREATE_INDEX,
-			 'create table test (id int primary key, name text, description text)',
+			 'create table test (id int primary key, name text,' .
+			 'description text)',
 			 'public.test_pkey', false, true);
 PgLogExecute(COMMAND_ANALYZE, 'analyze test');
 
@@ -1162,8 +1208,6 @@ PgLogExecute(COMMAND_CREATE_DATABASE, "CREATE DATABASE database_test");
 PgLogExecute(COMMAND_ALTER_DATABASE,
 			 "ALTER DATABASE database_test rename to database_test2");
 PgLogExecute(COMMAND_DROP_DATABASE, "DROP DATABASE database_test2");
-
-#PgLogExecute(COMMAND_DISCARD_ALL, "discard all");
 
 # Make sure there are no more audit events pending in the postgres log
 PgLogWait();
