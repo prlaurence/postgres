@@ -224,8 +224,11 @@ log_check(AuditEvent *e, const char **classname)
 		case LOGSTMT_ALL:
 			switch (e->commandTag)
 			{
+				case T_CopyStmt:
 				case T_SelectStmt:
+				case T_PrepareStmt:
 				case T_PlannedStmt:
+				case T_ExecuteStmt:
 					*classname = CLASS_READ;
 					class = LOG_READ;
 					break;
@@ -237,7 +240,6 @@ log_check(AuditEvent *e, const char **classname)
 					break;
 
 				case T_DoStmt:
-				case T_ExecuteStmt:
 					*classname = CLASS_FUNCTION;
 					class = LOG_FUNCTION;
 					break;
@@ -466,6 +468,9 @@ log_attribute_check_any(Oid relOid,
 		AttrNumber	nattrs;
 		AttrNumber	curr_att;
 
+		ereport(DEBUG1, (errmsg("pg_audit bms empty"),
+								errhidestmt(true)));
+
 		/* Get relation to determine total attribute */
 		classTuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relOid));
 
@@ -651,6 +656,9 @@ log_dml(Oid auditOid, List *rangeTabls)
 			 */
 			if (log_relation_check(relOid, auditOid, rte->requiredPerms))
 			{
+				ereport(DEBUG1, (errmsg("pg_audit relation check"),
+										errhidestmt(true)));
+				
 				auditEvent.granted = true;
 			}
 
@@ -665,9 +673,13 @@ log_dml(Oid auditOid, List *rangeTabls)
 				 * Check the select columns to see if the audit role has
 				 * priveleges on any of them.
 				 */
-				auditEvent.granted =
-					log_attribute_check_any(relOid, auditOid, rte->selectedCols,
-										    ACL_SELECT);
+				if (rte->requiredPerms & ACL_SELECT)
+				{
+					auditEvent.granted =
+						log_attribute_check_any(relOid, auditOid,
+												rte->selectedCols,
+												ACL_SELECT);
+				}
 
 				/*
 				 * Check the modified columns to see if the audit role has
@@ -811,7 +823,7 @@ log_function_execute(Oid objectId)
 
 	/* Log the event */
 	utilityAuditEvent.logStmtLevel = LOGSTMT_ALL;
-	utilityAuditEvent.commandTag = T_ExecuteStmt;
+	utilityAuditEvent.commandTag = T_DoStmt;
 	utilityAuditEvent.command = COMMAND_EXECUTE;
 	utilityAuditEvent.objectType = OBJECT_TYPE_FUNCTION;
 	utilityAuditEvent.commandText = debug_query_string;
@@ -1043,7 +1055,7 @@ check_pgaudit_log(char **newval, void **extra, GucSource source)
 
 		/* Add or subtract class bits from the log bitmap. */
 		if (subtract)
-			*f |= ~class;
+			*f &= ~class;
 		else
 			*f |= class;
 	}
