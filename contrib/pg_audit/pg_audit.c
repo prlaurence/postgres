@@ -717,7 +717,7 @@ log_create_alter_drop(Oid classId,
 		class = RelationGetForm(rel);
 		utilityAuditEvent.objectName =
 			quote_qualified_identifier(get_namespace_name(
-				                       RelationGetNamespace(rel)),
+									   RelationGetNamespace(rel)),
 									   RelationGetRelationName(rel));
 		relation_close(rel, NoLock);
 

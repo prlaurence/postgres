@@ -121,7 +121,7 @@ use constant
 # Command line parameters
 ################################################################################
 my $strPgSqlBin = '../../../../bin/bin';	# Path of PG binaries to use for
-	 										# this test
+											# this test
 my $strTestPath = '../../../../data';		# Path where testing will occur
 my $iDefaultPort = 6000;					# Default port to run Postgres on
 my $bHelp = false;							# Display help
@@ -1030,12 +1030,12 @@ PgAuditLogSet(CONTEXT_ROLE, 'user1', (CLASS_READ, CLASS_WRITE));
 PgSetUser('user1');
 
 PgLogExecute(COMMAND_CREATE_TABLE,
-             'create table account_role_map (account_id int, role_id int)',
+			 'create table account_role_map (account_id int, role_id int)',
 			 'public.account_role_map');
 PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.account_role_map');
 
 @oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
-	 		 &COMMAND => &COMMAND_SELECT},
+			 &COMMAND => &COMMAND_SELECT},
 			{&NAME => 'public.account_role_map', &TYPE => &TYPE_TABLE,
 			 &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT,
