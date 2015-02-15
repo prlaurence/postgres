@@ -143,7 +143,8 @@ AUDIT: SESSION,READ,SELECT,,,select *
     <para>
       Object auditing logs commands that affect a particular object.  Only
       <literal>SELECT</literal>, <literal>INSERT</literal>,
-      <literal>UPDATE</literal> and <literal>DELETE</literal> commands are supported.
+      <literal>UPDATE</literal> and <literal>DELETE</literal> commands are
+      supported.
     </para>
 
     <sect3>
