@@ -6,7 +6,7 @@
  * fully-qualified object names for all DML and many DDL statements.
  *
  *
- * Copyright © 2014-2015, PostgreSQL Global Development Group
+ * Copyright © 2014-2015, PostgreSQL Global Development Group
  *
  * Permission to use, copy, modify, and distribute this software and
  * its documentation for any purpose, without fee, and without a
