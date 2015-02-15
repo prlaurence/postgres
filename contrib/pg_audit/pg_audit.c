@@ -982,8 +982,8 @@ check_pgaudit_log(char **newval, void **extra, GucSource source)
 	}
 
 	/*
-	 * Check that we recognise each token, and add it to the bitmap we're building
-	 * up in a newly-allocated uint64 *f.
+	 * Check that we recognise each token, and add it to the bitmap we're
+	 * building up in a newly-allocated uint64 *f.
 	 */
 	f = (uint64 *) malloc(sizeof(uint64));
 	if (!f)
