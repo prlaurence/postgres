@@ -8,7 +8,7 @@
  * Copyright (c) 2014-2015, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
- *		  contrib/pg_prewarm/pg_prewarm.c
+ *		  contrib/pg_audit/pg_audit.c
  *------------------------------------------------------------------------------
  */
 #include "postgres.h"
