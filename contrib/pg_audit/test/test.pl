@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 ################################################################################
-# test.pl - pgAudit Unit Tests
+# test.pl - pg_audit Unit Tests
 ################################################################################
 
 ################################################################################
@@ -89,6 +89,7 @@ use constant
 	COMMAND_EXECUTE_READ		=> 'EXECUTE READ',
 	COMMAND_EXECUTE_WRITE		=> 'EXECUTE WRITE',
 	COMMAND_EXECUTE_FUNCTION	=> 'EXECUTE FUNCTION',
+	COMMAND_EXPLAIN				=> 'EXPLAIN',
 	COMMAND_FETCH				=> 'FETCH',
 	COMMAND_GRANT				=> 'GRANT',
 	COMMAND_INSERT				=> 'INSERT',
@@ -155,11 +156,11 @@ my $strDatabase = 'postgres';	# Connected database (modified by PgSetDatabase)
 my $strUser = 'postgres';		# Connected user (modified by PgSetUser)
 my $strAuditRole = 'audit';		# Role to use for auditing
 
-my %oAuditLogHash;				# Hash to store pgaudit.log GUCS
-my %oAuditGrantHash;			# Hash to store pgaudit grants
+my %oAuditLogHash;				# Hash to store pg_audit.log GUCS
+my %oAuditGrantHash;			# Hash to store pg_audit grants
 
-my $strCurrentAuditLog;		# pgaudit.log setting that Postgres was started with
-my $strTemporaryAuditLog;	# pgaudit.log setting that was set hot
+my $strCurrentAuditLog;		# pg_audit.log setting was Postgres was started with
+my $strTemporaryAuditLog;	# pg_audit.log setting that was set hot
 
 ################################################################################
 # Stores the mapping between commands, classes, and types
@@ -211,6 +212,7 @@ my %oCommandHash =
 		&COMMAND => &COMMAND_EXECUTE},
 	&COMMAND_EXECUTE_FUNCTION => {&CLASS => &CLASS_FUNCTION,
 		&TYPE => &TYPE_FUNCTION, &COMMAND => &COMMAND_EXECUTE},
+	&COMMAND_EXPLAIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_FETCH => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_GRANT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
 	&COMMAND_PREPARE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
@@ -706,8 +708,8 @@ sub PgStart
 				   # " -c log_destination='stderr,csvlog'" .
 				   # " -c logging_collector=on" .
 				   (defined($strCurrentAuditLog) ?
-					   " -c pgaudit.log='${strCurrentAuditLog}'" : '') .
-				   " -c pgaudit.role='${strAuditRole}'" .
+					   " -c pg_audit.log='${strCurrentAuditLog}'" : '') .
+				   " -c pg_audit.role='${strAuditRole}'" .
 				   " -c log_connections=on" .
 				   "\" -D ${strPath} -l ${strPath}/postgresql.log -w -s");
 
@@ -731,19 +733,19 @@ sub PgAuditLogSet
 	if ($strContext eq CONTEXT_GLOBAL)
 	{
 		$strCommand = COMMAND_SET;
-		$strSql = "set pgaudit.log = '" .
+		$strSql = "set pg_audit.log = '" .
 				  ArrayToString(@stryClass) . "'";
 		$strTemporaryAuditLog = ArrayToString(@stryClass);
 	}
 	elsif ($strContext eq CONTEXT_ROLE)
 	{
 		$strCommand = COMMAND_ALTER_ROLE_SET;
-		$strSql = "alter role ${strName} set pgaudit.log = '" .
+		$strSql = "alter role ${strName} set pg_audit.log = '" .
 				  ArrayToString(@stryClass) . "'";
 	}
 	else
 	{
-		confess "unable to set pgaudit.log for context ${strContext}";
+		confess "unable to set pg_audit.log for context ${strContext}";
 	}
 
 	# Reset the audit log
@@ -994,7 +996,7 @@ PgLogExecute(COMMAND_INSERT,
 
 PgSetUser('postgres');
 PgAuditLogSet(CONTEXT_GLOBAL, undef, (CLASS_NONE));
-PgExecute("set pgaudit.role = 'audit'");
+PgExecute("set pg_audit.role = 'audit'");
 PgSetUser('user1');
 
 PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.account', 'password');
@@ -1072,7 +1074,7 @@ PgLogExecute(COMMAND_UPDATE, "update account set password = 'HASH2'",
 PgSetUser('postgres');
 
 PgAuditLogSet(CONTEXT_GLOBAL, undef, (CLASS_ALL));
-PgLogExecute(COMMAND_SET, "set pgaudit.role = 'audit'");
+PgLogExecute(COMMAND_SET, "set pg_audit.role = 'audit'");
 
 PgLogExecute(COMMAND_DO, "do \$\$\ begin raise notice 'test'; end; \$\$;");
 PgLogExecute(COMMAND_CREATE_SCHEMA, "create schema test");
@@ -1152,6 +1154,12 @@ PgLogExecute(COMMAND_GRANT, 'grant select (name) on public.test to public');
 PgLogExecute(COMMAND_SELECT, 'select * from test');
 PgLogExecute(COMMAND_SELECT, 'select from test');
 
+# Try a select that does not reference any tables
+PgLogExecute(COMMAND_SELECT, 'select 1, current_timestamp');
+
+# Try explain
+PgLogExecute(COMMAND_EXPLAIN, 'explain select 1');
+
 # Now set grant to a specific column to audit and make sure it logs
 # Make sure the the converse is true
 PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.test',
@@ -1186,8 +1194,10 @@ PgLogExecute(COMMAND_DROP_TABLE, 'drop table test.test2',
 PgLogExecute(COMMAND_CREATE_FUNCTION, 'CREATE FUNCTION int_add(a int, b int)' .
 									  ' returns int as $$ begin return a + b;' .
 									  ' end $$language plpgsql');
+PgLogExecute(COMMAND_SELECT, "select int_add(1, 1)",
+							 undef, true, false);
 PgLogExecute(COMMAND_EXECUTE_FUNCTION, "select int_add(1, 1)",
-									   'public.int_add');
+									   'public.int_add', false, true);
 
 PgLogExecute(COMMAND_CREATE_AGGREGATE, "CREATE AGGREGATE sum_test (int)" .
 							" (sfunc = int_add, stype = int, initcond = 0)");

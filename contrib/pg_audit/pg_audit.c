@@ -3,7 +3,8 @@
  *
  * An auditing extension for PostgreSQL. Improves on standard statement logging
  * by adding more logging classes, object level logging, and providing
- * fully-qualified object names for all DML and many DDL statements.
+ * fully-qualified object names for all DML and many DDL statements (See
+ * pg_audit.sgml for details).
  *
  * Copyright (c) 2014-2015, PostgreSQL Global Development Group
  *
@@ -58,14 +59,14 @@ char *auditLog = NULL;
 static uint64 auditLogBitmap = 0;
 
 /*
- * String contants for audit types - used when logging to distinguish session
+ * String constants for audit types - used when logging to distinguish session
  * vs. object auditing.
  */
 #define AUDIT_TYPE_OBJECT	"OBJECT"
 #define AUDIT_TYPE_SESSION	"SESSION"
 
 /*
- * String contants for log classes - used when processing tokens in the
+ * String constants for log classes - used when processing tokens in the
  * pgaudit.log GUC.
  */
 #define CLASS_DDL			"DDL"
@@ -101,7 +102,7 @@ enum LogClass
 	LOG_ALL = ~(uint64)0
 };
 
-/* String contants for logging commands */
+/* String constants for logging commands */
 #define COMMAND_DELETE		"DELETE"
 #define COMMAND_EXECUTE		"EXECUTE"
 #define COMMAND_INSERT		"INSERT"
@@ -124,9 +125,6 @@ enum LogClass
 #define OBJECT_TYPE_UNKNOWN			"UNKNOWN"
 
 /*
- * This module collects AuditEvents from various sources (event triggers, and
- * executor/utility hooks) and passes them to the log_audit_event() function.
- *
  * An AuditEvent represents an operation that potentially affects a single
  * object. If an underlying command affects multiple objects multiple
  * AuditEvents must be created to represent it.
@@ -148,27 +146,8 @@ typedef struct
  * multiple places.
  */
 bool utilityCommandLogged = false;
+bool utilityCommandInProgress = false;
 AuditEvent utilityAuditEvent;
-
-/*
- * Returns the oid of the role specified in pgaudit.role.
- */
-static Oid
-audit_role_oid()
-{
-	HeapTuple roleTup;
-	Oid oid = InvalidOid;
-
-	roleTup = SearchSysCache1(AUTHNAME, PointerGetDatum(auditRole));
-
-	if (HeapTupleIsValid(roleTup))
-	{
-		oid = HeapTupleGetOid(roleTup);
-		ReleaseSysCache(roleTup);
-	}
-
-	return oid;
-}
 
 /*
  * Takes an AuditEvent and returns true or false depending on whether the event
@@ -458,7 +437,7 @@ log_attribute_check_any(Oid relOid,
 		}
 	}
 
-	/* Make a copy of the column set */
+	/* bms_first_member is destructive, so make a copy before using it. */
 	tmpSet = bms_copy(attributeSet);
 
 	/* Check each column */
@@ -488,13 +467,13 @@ log_dml(Oid auditOid, List *rangeTabls)
 {
 	ListCell *lr;
 	bool first = true;
+	AuditEvent auditEvent;
 
 	foreach(lr, rangeTabls)
 	{
 		Oid relOid;
 		Relation rel;
 		RangeTblEntry *rte = lfirst(lr);
-		AuditEvent auditEvent;
 
 		/* We only care about tables, and can ignore subqueries etc. */
 		if (rte->rtekind != RTE_RELATION)
@@ -611,7 +590,6 @@ log_dml(Oid auditOid, List *rangeTabls)
 									   RelationGetRelationName(rel));
 		relation_close(rel, NoLock);
 
-
 		/* Perform object auditing only if the audit role is valid */
 		if (auditOid != InvalidOid)
 		{
@@ -671,6 +649,23 @@ log_dml(Oid auditOid, List *rangeTabls)
 		}
 
 		pfree(auditEvent.objectName);
+	}
+	
+	/*
+	 * If the first flag was never set to false, then rangeTabls was empty. In
+	 * this case log a session select statement.
+	 */
+	if (first && !utilityCommandInProgress)
+	{
+		auditEvent.logStmtLevel = LOGSTMT_ALL;
+		auditEvent.commandTag = T_SelectStmt;
+		auditEvent.command = COMMAND_SELECT;
+		auditEvent.granted = false;
+		auditEvent.commandText = debug_query_string;
+		auditEvent.objectName = "";
+		auditEvent.objectType = "";
+
+		log_audit_event(&auditEvent);
 	}
 }
 
@@ -868,12 +863,17 @@ static object_access_hook_type next_object_access_hook = NULL;
 static bool
 pgaudit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
 {
-	Oid auditOid = audit_role_oid();
+	Oid auditOid;
+	
+	/* Get the audit oid if the role exists. */
+	auditOid = get_role_oid(auditRole, true);
 
+	/* Log DML if the audit role is valid or session logging is enabled. */
 	if ((auditOid != InvalidOid || auditLogBitmap != 0) &&
 		!IsAbortedTransactionBlockState())
 		log_dml(auditOid, rangeTabls);
 
+	/* Call the next hook function. */
 	if (next_ExecutorCheckPerms_hook &&
 		!(*next_ExecutorCheckPerms_hook) (rangeTabls, abort))
 		return false;
@@ -894,6 +894,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 {
 	/* Create the utility audit event. */
 	utilityCommandLogged = false;
+	utilityCommandInProgress = true;
 
 	utilityAuditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
 	utilityAuditEvent.commandTag = nodeTag(parsetree);
@@ -918,6 +919,8 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 	{
 		log_audit_event(&utilityAuditEvent);
 	}
+
+	utilityCommandInProgress = false;
 }
 
 /*
@@ -944,7 +947,7 @@ pgaudit_object_access_hook(ObjectAccessType access,
  */
 
 /*
- * Take a pgaudit.log value such as "read, write, dml", verify that each of the
+ * Take a pg_audit.log value such as "read, write, dml", verify that each of the
  * comma-separated tokens corresponds to a LogClass value, and convert them into
  * a bitmap that log_audit_event can check.
  */
@@ -1052,14 +1055,14 @@ _PG_init(void)
 	if (IsUnderPostmaster)
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("pgaudit must be loaded via shared_preload_libraries")));
+				 errmsg("pg_audit must be loaded via shared_preload_libraries")));
 
 	/*
-	 * pgaudit.role = "role1"
+	 * pg_audit.role = "audit"
 	 *
 	 * This variable defines a role to be used for auditing.
 	 */
-	DefineCustomStringVariable("pgaudit.role",
+	DefineCustomStringVariable("pg_audit.role",
 							   "Enable auditing for role",
 							   NULL,
 							   &auditRole,
@@ -1069,11 +1072,11 @@ _PG_init(void)
 							   NULL, NULL, NULL);
 
 	/*
-	 * pgaudit.log = "read, write, ddl"
+	 * pg_audit.log = "read, write, ddl"
 	 *
 	 * This variables controls what classes of commands are logged.
 	 */
-	DefineCustomStringVariable("pgaudit.log",
+	DefineCustomStringVariable("pg_audit.log",
 							   "Enable auditing for classes of commands",
 							   NULL,
 							   &auditLog,

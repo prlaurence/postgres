@@ -1,9 +1,9 @@
 <!-- doc/src/sgml/pgaudit.sgml -->
 
-<sect1 id="pgaudit" xreflabel="pgaudit">
+<sect1 id="pg_audit" xreflabel="pg_audit">
   <title>pg_audit</title>
 
-  <indexterm zone="pgaudit">
+  <indexterm zone="pg_audit">
     <primary>pg_audit</primary>
   </indexterm>
 
@@ -36,8 +36,8 @@
       <title>Configuration</title>
 
       <para>
-        Session logging is controlled by the <literal>pgaudit.log</literal> GUC.
-        There are five classes of commands that are recognized:
+        Session logging is controlled by the <literal>pg_audit.log</literal>
+        GUC. There are five classes of commands that are recognized:
 
         <itemizedlist>
           <listitem>
@@ -79,14 +79,14 @@
       <para>
         Enable session logging for all writes and DDL:
           <programlisting>
-pgaudit.log = 'write, ddl'
+pg_audit.log = 'write, ddl'
           </programlisting>
       </para>
 
       <para>
         Enable session logging for all commands except miscellaneous:
           <programlisting>
-pgaudit.log = 'all, -misc'
+pg_audit.log = 'all, -misc'
           </programlisting>
       </para>
     </sect3>
@@ -95,7 +95,7 @@ pgaudit.log = 'all, -misc'
       <title>Examples</title>
 
       <para>
-        Set <literal>pgaudit.log = 'read, ddl'</literal> in
+        Set <literal>pg_audit.log = 'read, ddl'</literal> in
         <literal>postgresql.conf</literal>.
       </para>
 
@@ -152,14 +152,14 @@ AUDIT: SESSION,READ,SELECT,,,select *
 
       <para>
         Object-level auditing is implemented via the roles system.  The
-        <literal>pgaudit.role</literal> GUC defines the role that will be used
+        <literal>pg_audit.role</literal> GUC defines the role that will be used
         for auditing.  An object will be audited when the audit role has
         permissions for the command executed or inherits the permissions from
         another role.
       </para>
 
       <programlisting>
-postresql.conf: pgaudit.role = 'audit'
+postresql.conf: pg_audit.role = 'audit'
 
 grant select, delete
    on public.account;
@@ -170,7 +170,7 @@ grant select, delete
       <title>Examples</title>
 
       <para>
-        Set <literal>pgaudit.role = 'audit'</literal> in
+        Set <literal>pg_audit.role = 'audit'</literal> in
         <literal>postgresql.conf</literal>.
       </para>
 
