@@ -979,6 +979,16 @@ PgSetUser('postgres');
 &log("\nSession Audit:\n");
 
 PgAuditLogSet(CONTEXT_GLOBAL, undef, (CLASS_DDL, CLASS_READ));
+
+# !!! Trying to build test to exclude function calls (did not work)
+# PgLogExecute(COMMAND_CREATE_ROLE, 'create role func_owner');
+# PgAuditLogSet(CONTEXT_ROLE, 'func_owner');
+# PgLogExecute(COMMAND_SET, 'set role func_owner');
+# PgLogExecute(COMMAND_CREATE_FUNCTION, 'CREATE FUNCTION func_test(a int)' .
+# 									  ' returns int as $$ begin return a + 1;' .
+# 									  ' end $$language plpgsql security definer');
+# PgLogExecute(COMMAND_GRANT, 'grant execute on function func_test(int) to user1');
+
 PgSetUser('user1');
 
 PgLogExecute(COMMAND_CREATE_TABLE,
@@ -990,6 +1000,9 @@ PgLogExecute(COMMAND_INSERT,
 			 "insert into account (id, name, password, description)" .
 			 " values (1, 'user1', 'HASH1', 'blah, blah')");
 &log("AUDIT: <nothing logged>");
+
+# Test function without auditing (did not work)
+# PgLogExecute(COMMAND_SELECT, 'select func_test(1)');
 
 # Now tests for object logging
 &log("\nObject Audit:\n");
