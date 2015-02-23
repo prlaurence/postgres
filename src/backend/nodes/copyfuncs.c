@@ -175,6 +175,7 @@ _copyModifyTable(const ModifyTable *from)
 	 */
 	COPY_SCALAR_FIELD(operation);
 	COPY_SCALAR_FIELD(canSetTag);
+	COPY_SCALAR_FIELD(nominalRelation);
 	COPY_NODE_FIELD(resultRelations);
 	COPY_SCALAR_FIELD(resultRelIndex);
 	COPY_NODE_FIELD(plans);
@@ -1692,6 +1693,7 @@ _copyNullTest(const NullTest *from)
 	COPY_NODE_FIELD(arg);
 	COPY_SCALAR_FIELD(nulltesttype);
 	COPY_SCALAR_FIELD(argisrow);
+	COPY_LOCATION_FIELD(location);
 
 	return newnode;
 }
@@ -1706,6 +1708,7 @@ _copyBooleanTest(const BooleanTest *from)
 
 	COPY_NODE_FIELD(arg);
 	COPY_SCALAR_FIELD(booltesttype);
+	COPY_LOCATION_FIELD(location);
 
 	return newnode;
 }
@@ -2936,6 +2939,7 @@ _copyIndexStmt(const IndexStmt *from)
 	COPY_SCALAR_FIELD(isconstraint);
 	COPY_SCALAR_FIELD(deferrable);
 	COPY_SCALAR_FIELD(initdeferred);
+	COPY_SCALAR_FIELD(transformed);
 	COPY_SCALAR_FIELD(concurrent);
 	COPY_SCALAR_FIELD(if_not_exists);
 

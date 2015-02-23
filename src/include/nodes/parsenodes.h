@@ -232,7 +232,11 @@ typedef enum A_Expr_Kind
 	AEXPR_DISTINCT,				/* IS DISTINCT FROM - name must be "=" */
 	AEXPR_NULLIF,				/* NULLIF - name must be "=" */
 	AEXPR_OF,					/* IS [NOT] OF - name must be "=" or "<>" */
-	AEXPR_IN					/* [NOT] IN - name must be "=" or "<>" */
+	AEXPR_IN,					/* [NOT] IN - name must be "=" or "<>" */
+	AEXPR_BETWEEN,				/* name must be "BETWEEN" */
+	AEXPR_NOT_BETWEEN,			/* name must be "NOT BETWEEN" */
+	AEXPR_BETWEEN_SYM,			/* name must be "BETWEEN SYMMETRIC" */
+	AEXPR_NOT_BETWEEN_SYM		/* name must be "NOT BETWEEN SYMMETRIC" */
 } A_Expr_Kind;
 
 typedef struct A_Expr
@@ -2257,6 +2261,7 @@ typedef struct IndexStmt
 	bool		isconstraint;	/* is it for a pkey/unique constraint? */
 	bool		deferrable;		/* is the constraint DEFERRABLE? */
 	bool		initdeferred;	/* is the constraint INITIALLY DEFERRED? */
+	bool		transformed;	/* true when transformIndexStmt is finished */
 	bool		concurrent;		/* should this be a concurrent index build? */
 	bool		if_not_exists;	/* just do nothing if index already exists? */
 } IndexStmt;

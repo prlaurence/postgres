@@ -677,7 +677,7 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 	 */
 
 	/* compute header overhead --- this should match heap_form_tuple() */
-	hoff = offsetof(HeapTupleHeaderData, t_bits);
+	hoff = SizeofHeapTupleHeader;
 	if (has_nulls)
 		hoff += BITMAPLEN(numAttrs);
 	if (newtup->t_data->t_infomask & HEAP_HASOID)
@@ -963,7 +963,7 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 		 * different conclusion about the size of the null bitmap, or even
 		 * whether there needs to be one at all.
 		 */
-		new_header_len = offsetof(HeapTupleHeaderData, t_bits);
+		new_header_len = SizeofHeapTupleHeader;
 		if (has_nulls)
 			new_header_len += BITMAPLEN(numAttrs);
 		if (olddata->t_infomask & HEAP_HASOID)
@@ -986,7 +986,7 @@ toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 		/*
 		 * Copy the existing tuple header, but adjust natts and t_hoff.
 		 */
-		memcpy(new_data, olddata, offsetof(HeapTupleHeaderData, t_bits));
+		memcpy(new_data, olddata, SizeofHeapTupleHeader);
 		HeapTupleHeaderSetNatts(new_data, numAttrs);
 		new_data->t_hoff = new_header_len;
 		if (olddata->t_infomask & HEAP_HASOID)
@@ -1196,7 +1196,7 @@ toast_flatten_tuple_to_datum(HeapTupleHeader tup,
 	 *
 	 * This should match the reconstruction code in toast_insert_or_update.
 	 */
-	new_header_len = offsetof(HeapTupleHeaderData, t_bits);
+	new_header_len = SizeofHeapTupleHeader;
 	if (has_nulls)
 		new_header_len += BITMAPLEN(numAttrs);
 	if (tup->t_infomask & HEAP_HASOID)
@@ -1211,7 +1211,7 @@ toast_flatten_tuple_to_datum(HeapTupleHeader tup,
 	/*
 	 * Copy the existing tuple header, but adjust natts and t_hoff.
 	 */
-	memcpy(new_data, tup, offsetof(HeapTupleHeaderData, t_bits));
+	memcpy(new_data, tup, SizeofHeapTupleHeader);
 	HeapTupleHeaderSetNatts(new_data, numAttrs);
 	new_data->t_hoff = new_header_len;
 	if (tup->t_infomask & HEAP_HASOID)
@@ -1365,11 +1365,13 @@ toast_save_datum(Relation rel, Datum value,
 	CommandId	mycid = GetCurrentCommandId(true);
 	struct varlena *result;
 	struct varatt_external toast_pointer;
-	struct
+	union
 	{
 		struct varlena hdr;
-		char		data[TOAST_MAX_CHUNK_SIZE]; /* make struct big enough */
-		int32		align_it;	/* ensure struct is aligned well enough */
+		/* this is to make the union big enough for a chunk: */
+		char		data[TOAST_MAX_CHUNK_SIZE + VARHDRSZ];
+		/* ensure union is aligned well enough: */
+		int32		align_it;
 	}			chunk_data;
 	int32		chunk_size;
 	int32		chunk_seq = 0;

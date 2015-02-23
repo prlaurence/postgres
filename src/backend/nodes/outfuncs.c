@@ -327,6 +327,7 @@ _outModifyTable(StringInfo str, const ModifyTable *node)
 
 	WRITE_ENUM_FIELD(operation, CmdType);
 	WRITE_BOOL_FIELD(canSetTag);
+	WRITE_UINT_FIELD(nominalRelation);
 	WRITE_NODE_FIELD(resultRelations);
 	WRITE_INT_FIELD(resultRelIndex);
 	WRITE_NODE_FIELD(plans);
@@ -1369,6 +1370,7 @@ _outNullTest(StringInfo str, const NullTest *node)
 	WRITE_NODE_FIELD(arg);
 	WRITE_ENUM_FIELD(nulltesttype, NullTestType);
 	WRITE_BOOL_FIELD(argisrow);
+	WRITE_LOCATION_FIELD(location);
 }
 
 static void
@@ -1378,6 +1380,7 @@ _outBooleanTest(StringInfo str, const BooleanTest *node)
 
 	WRITE_NODE_FIELD(arg);
 	WRITE_ENUM_FIELD(booltesttype, BoolTestType);
+	WRITE_LOCATION_FIELD(location);
 }
 
 static void
@@ -2077,7 +2080,9 @@ _outIndexStmt(StringInfo str, const IndexStmt *node)
 	WRITE_BOOL_FIELD(isconstraint);
 	WRITE_BOOL_FIELD(deferrable);
 	WRITE_BOOL_FIELD(initdeferred);
+	WRITE_BOOL_FIELD(transformed);
 	WRITE_BOOL_FIELD(concurrent);
+	WRITE_BOOL_FIELD(if_not_exists);
 }
 
 static void
@@ -2509,6 +2514,22 @@ _outAExpr(StringInfo str, const A_Expr *node)
 			break;
 		case AEXPR_IN:
 			appendStringInfoString(str, " IN ");
+			WRITE_NODE_FIELD(name);
+			break;
+		case AEXPR_BETWEEN:
+			appendStringInfoString(str, " BETWEEN ");
+			WRITE_NODE_FIELD(name);
+			break;
+		case AEXPR_NOT_BETWEEN:
+			appendStringInfoString(str, " NOT_BETWEEN ");
+			WRITE_NODE_FIELD(name);
+			break;
+		case AEXPR_BETWEEN_SYM:
+			appendStringInfoString(str, " BETWEEN_SYM ");
+			WRITE_NODE_FIELD(name);
+			break;
+		case AEXPR_NOT_BETWEEN_SYM:
+			appendStringInfoString(str, " NOT_BETWEEN_SYM ");
 			WRITE_NODE_FIELD(name);
 			break;
 		default:
