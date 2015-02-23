@@ -307,10 +307,10 @@ AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password,
   </sect2>
 
   <sect2>
-    <title>Author</title>
+    <title>Authors</title>
 
     <para>
-      David Steele <email>david@pgmasters.net</email>
+      Abhijit Menon-Sen <email>ams@2ndQuadrant.com</email>, Ian Barwick <email>ian@2ndQuadrant.com</email>, David Steele <email>david@pgmasters.net</email>
     </para>
   </sect2>
 </sect1>
