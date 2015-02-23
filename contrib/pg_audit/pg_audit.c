@@ -650,7 +650,7 @@ log_dml(Oid auditOid, List *rangeTabls)
 
 		pfree(auditEvent.objectName);
 	}
-	
+
 	/*
 	 * If the first flag was never set to false, then rangeTabls was empty. In
 	 * this case log a session select statement.
@@ -864,7 +864,7 @@ static bool
 pgaudit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
 {
 	Oid auditOid;
-	
+
 	/* Get the audit oid if the role exists. */
 	auditOid = get_role_oid(auditRole, true);
 
