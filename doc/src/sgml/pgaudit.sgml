@@ -89,6 +89,13 @@ pg_audit.log = 'write, ddl'
 pg_audit.log = 'all, -misc'
           </programlisting>
       </para>
+      
+      <para>
+      Note that <literal>pg_audit.log</literal> can be set globally (in 
+      <filename>postgresql.conf</filename>), at the database level (using
+      <literal>alter database ... set</literal>), or at the role level (using
+      <literal>alter role ... set</literal>).
+      </para>
     </sect3>
 
     <sect3>
@@ -164,6 +171,13 @@ postresql.conf: pg_audit.role = 'audit'
 grant select, delete
    on public.account;
       </programlisting>
+
+      <para>
+      Note that <literal>pg_audit.role</literal> can be set globally (in 
+      <filename>postgresql.conf</filename>), at the database level (using
+      <literal>alter database ... set</literal>), or at the role level (using
+      <literal>alter role ... set</literal>).
+      </para>
     </sect3>
 
     <sect3>
@@ -310,7 +324,7 @@ AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password,
     <title>Authors</title>
 
     <para>
-      Abhijit Menon-Sen <email>ams@2ndQuadrant.com</email>, Ian Barwick <email>ian@2ndQuadrant.com</email>, David Steele <email>david@pgmasters.net</email>
+      Abhijit Menon-Sen <email>ams@2ndQuadrant.com</email>, Ian Barwick <email>ian@2ndQuadrant.com</email>, and David Steele <email>david@pgmasters.net</email>.
     </para>
   </sect2>
 </sect1>
