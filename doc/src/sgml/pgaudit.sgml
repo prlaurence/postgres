@@ -1,9 +1,9 @@
 <!-- doc/src/sgml/pgaudit.sgml -->
 
-<sect1 id="pg_audit" xreflabel="pg_audit">
+<sect1 id="pgaudit" xreflabel="pgaudit">
   <title>pg_audit</title>
 
-  <indexterm zone="pg_audit">
+  <indexterm zone="pgaudit">
     <primary>pg_audit</primary>
   </indexterm>
 
