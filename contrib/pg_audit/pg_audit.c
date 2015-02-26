@@ -655,7 +655,7 @@ log_dml(Oid auditOid, List *rangeTabls)
 	 * If the first flag was never set to false, then rangeTabls was empty. In
 	 * this case log a session select statement.
 	 */
-	if (first && !utilityCommandInProgress)
+	if (first/* && !utilityCommandInProgress*/)
 	{
 		auditEvent.logStmtLevel = LOGSTMT_ALL;
 		auditEvent.commandTag = T_SelectStmt;
@@ -904,6 +904,14 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 	utilityAuditEvent.commandText = debug_query_string;
 	utilityAuditEvent.granted = false;
 
+	/* If this is a DO block always log it */
+	if (auditLogBitmap != 0 &&
+		utilityAuditEvent.commandTag == T_DoStmt &&
+		!IsAbortedTransactionBlockState())
+	{
+		log_audit_event(&utilityAuditEvent);
+	}
+
 	/* Call the standard process utility chain. */
 	if (next_ProcessUtility_hook)
 		(*next_ProcessUtility_hook) (parsetree, queryString, context,
@@ -915,7 +923,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 	/* Log the utility command if logging is on, the command has not already
 	 * been logged by another hook, and the transaction is not aborted */
 	if (auditLogBitmap != 0 && !utilityCommandLogged &&
-		!IsAbortedTransactionBlockState())
+		nodeTag(parsetree) != T_DoStmt && !IsAbortedTransactionBlockState())
 	{
 		log_audit_event(&utilityAuditEvent);
 	}

@@ -826,6 +826,7 @@ sub PgAuditGrantReset
 # Main
 ################################################################################
 my @oyTable; # Store table info for select, insert, update, delete
+my $strSql;  # Hold Sql commands
 
 # Drop the old cluster, build the code, and create a new cluster
 PgDrop();
@@ -1170,8 +1171,47 @@ PgLogExecute(COMMAND_SELECT, 'select from test');
 # Try a select that does not reference any tables
 PgLogExecute(COMMAND_SELECT, 'select 1, current_timestamp');
 
+# Now try the same in a do block
+$strSql = 'do $$ declare test int; begin select 1 into test; end $$';
+
+PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
+PgLogExecute(COMMAND_SELECT, $strSql, undef, false, true);
+
+# Insert some data into test and try a loop in a do block
+PgLogExecute(COMMAND_INSERT, 'insert into test (id) values (1)');
+PgLogExecute(COMMAND_INSERT, 'insert into test (id) values (2)');
+PgLogExecute(COMMAND_INSERT, 'insert into test (id) values (3)');
+
+$strSql = 'do $$ ' .
+		  'declare ' .
+		  '    result record;' .
+		  'begin ' .
+		  '    for result in select id from test loop ' .
+		  '        insert into test (id) values (result.id + 100); ' . 
+		  '    end loop; ' .
+		  'end; $$';
+
+# Create a function with a select statement then call it in a do block
+PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
+PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
+PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+PgLogExecute(COMMAND_INSERT, $strSql, undef, false, true);
+
+# Now try some DDL in a do block
+$strSql = 'do $$ ' .
+		  'begin ' .
+		  '    create table test_block (id int); ' .
+		  '    drop table test_block; ' .
+		  'end; $$';
+
+PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
+PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test_block', false, false);
+PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'public.test_block', false, true);
+
 # Try explain
-PgLogExecute(COMMAND_EXPLAIN, 'explain select 1');
+PgLogExecute(COMMAND_SELECT, 'explain select 1', undef, true, false);
+PgLogExecute(COMMAND_EXPLAIN, 'explain select 1', undef, false, true);
 
 # Now set grant to a specific column to audit and make sure it logs
 # Make sure the the converse is true
