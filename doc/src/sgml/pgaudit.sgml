@@ -1,0 +1,330 @@
+<!-- doc/src/sgml/pgaudit.sgml -->
+
+<sect1 id="pgaudit" xreflabel="pgaudit">
+  <title>pg_audit</title>
+
+  <indexterm zone="pgaudit">
+    <primary>pg_audit</primary>
+  </indexterm>
+
+  <para>
+    The <filename>pg_audit</filename> module provides session and object
+    auditing via the standard logging facility.  Session and object auditing are
+    completely independent and can be combined.
+  </para>
+
+  <sect2>
+    <title>Session Auditing</title>
+
+    <para>
+      Session auditing allows the logging of all commands that are executed by
+      a user in the backend.  Each command is logged with a single entry and
+      includes the audit type (e.g. <literal>SESSION</literal>), command type
+      (e.g. <literal>CREATE TABLE</literal>, <literal>SELECT</literal>) and
+      statement (e.g. <literal>"select * from test"</literal>).
+
+      Fully-qualified names and object types will be logged for
+      <literal>CREATE</literal>, <literal>UPDATE</literal>, and
+      <literal>DROP</literal> commands on <literal>TABLE</literal>,
+      <literal>MATVIEW</literal>, <literal>VIEW</literal>,
+      <literal>INDEX</literal>, <literal>FOREIGN TABLE</literal>,
+      <literal>COMPOSITE TYPE</literal>, <literal>INDEX</literal>, and
+      <literal>SEQUENCE</literal> objects as well as function calls.
+    </para>
+
+    <sect3>
+      <title>Configuration</title>
+
+      <para>
+        Session logging is controlled by the <literal>pg_audit.log</literal>
+        GUC. There are five classes of commands that are recognized:
+
+        <itemizedlist>
+          <listitem>
+            <para>
+              <literal>READ</literal> - <literal>SELECT</literal> and
+              <literal>COPY</literal> when the source is a table or query.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              <literal>WRITE</literal> - <literal>INSERT</literal>,
+              <literal>UPDATE</literal>, <literal>DELETE</literal>,
+              <literal>TRUNCATE</literal>, and <literal>COPY</literal> when the
+              destination is a table.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              <literal>FUNCTION</literal> - Function calls and
+              <literal>DO</literal> blocks.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              <literal>DDL</literal> - DDL, plus <literal>VACUUM</literal>,
+              <literal>REINDEX</literal>, and <literal>ANALYZE</literal>.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              <literal>MISC</literal> - Miscellaneous commands, e.g.
+              <literal>DISCARD</literal>, <literal>FETCH</literal>,
+              <literal>CHECKPOINT</literal>.
+            </para>
+          </listitem>
+        </itemizedlist>
+      </para>
+
+      <para>
+        Enable session logging for all writes and DDL:
+          <programlisting>
+pg_audit.log = 'write, ddl'
+          </programlisting>
+      </para>
+
+      <para>
+        Enable session logging for all commands except miscellaneous:
+          <programlisting>
+pg_audit.log = 'all, -misc'
+          </programlisting>
+      </para>
+      
+      <para>
+      Note that <literal>pg_audit.log</literal> can be set globally (in 
+      <filename>postgresql.conf</filename>), at the database level (using
+      <literal>alter database ... set</literal>), or at the role level (using
+      <literal>alter role ... set</literal>).
+      </para>
+    </sect3>
+
+    <sect3>
+      <title>Examples</title>
+
+      <para>
+        Set <literal>pg_audit.log = 'read, ddl'</literal> in
+        <literal>postgresql.conf</literal>.
+      </para>
+
+      <para>
+        SQL:
+      </para>
+
+      <programlisting>
+create table account
+(
+    id int,
+    name text,
+    password text,
+    description text
+);
+
+select *
+    from account;
+
+insert into account (id, name, password, description)
+             values (1, 'user1', 'HASH1', 'blah, blah');
+      </programlisting>
+
+      <para>
+        Log Output:
+      </para>
+
+      <programlisting>
+AUDIT: SESSION,DDL,CREATE TABLE,TABLE,public.account,create table account
+(
+    id int,
+    name text,
+    password text,
+    description text
+);
+AUDIT: SESSION,READ,SELECT,,,select *
+    from account
+      </programlisting>
+    </sect3>
+  </sect2>
+
+  <sect2>
+    <title>Object Auditing</title>
+
+    <para>
+      Object auditing logs commands that affect a particular object.  Only
+      <literal>SELECT</literal>, <literal>INSERT</literal>,
+      <literal>UPDATE</literal> and <literal>DELETE</literal> commands are
+      supported.
+    </para>
+
+    <sect3>
+      <title>Configuration</title>
+
+      <para>
+        Object-level auditing is implemented via the roles system.  The
+        <literal>pg_audit.role</literal> GUC defines the role that will be used
+        for auditing.  An object will be audited when the audit role has
+        permissions for the command executed or inherits the permissions from
+        another role.
+      </para>
+
+      <programlisting>
+postresql.conf: pg_audit.role = 'audit'
+
+grant select, delete
+   on public.account;
+      </programlisting>
+
+      <para>
+      Note that <literal>pg_audit.role</literal> can be set globally (in 
+      <filename>postgresql.conf</filename>), at the database level (using
+      <literal>alter database ... set</literal>), or at the role level (using
+      <literal>alter role ... set</literal>).
+      </para>
+    </sect3>
+
+    <sect3>
+      <title>Examples</title>
+
+      <para>
+        Set <literal>pg_audit.role = 'audit'</literal> in
+        <literal>postgresql.conf</literal>.
+      </para>
+
+      <para>
+        SQL:
+      </para>
+
+        <programlisting>
+create table account
+(
+    id int,
+    name text,
+    password text,
+    description text
+);
+
+grant select (password)
+   on public.account
+   to audit;
+
+select id, name
+  from account;
+
+select password
+  from account;
+
+grant update (name, password)
+   on public.account
+   to audit;
+
+update account
+   set description = 'yada, yada';
+
+update account
+   set password = 'HASH2';
+
+create table account_role_map
+(
+    account_id int,
+    role_id int
+);
+
+grant select
+   on public.account_role_map
+   to audit;
+
+select account.password,
+       account_role_map.role_id
+  from account
+       inner join account_role_map
+            on account.id = account_role_map.account_id
+        </programlisting>
+
+      <para>
+        Log Output:
+      </para>
+
+      <programlisting>
+AUDIT: OBJECT,READ,SELECT,TABLE,public.account,select password
+  from account
+AUDIT: OBJECT,WRITE,UPDATE,TABLE,public.account,update account
+   set password = 'HASH2'
+AUDIT: OBJECT,READ,SELECT,TABLE,public.account,select account.password,
+       account_role_map.role_id
+  from account
+       inner join account_role_map
+            on account.id = account_role_map.account_id
+AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password,
+       account_role_map.role_id
+  from account
+       inner join account_role_map
+            on account.id = account_role_map.account_id
+      </programlisting>
+    </sect3>
+  </sect2>
+
+  <sect2>
+    <title>Format</title>
+
+    <para>
+      Audit entries are written to the standard logging facility and contain
+      the following columns in comma-separated format:
+
+      <note>
+        <para>
+          Output is not in compliant CSV format.  If machine-readability is
+          required then consider setting
+          <literal>log_destination = 'csvlog'</literal>.
+        </para>
+      </note>
+
+      <itemizedlist>
+        <listitem>
+          <para>
+            <literal>AUDIT_TYPE</literal> - <literal>SESSION</literal> or
+            <literal>OBJECT</literal>.
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            <literal>CLASS</literal> - <literal>READ</literal>,
+            <literal>WRITE</literal>, <literal>FUNCTION</literal>,
+            <literal>DDL</literal>, or <literal>MISC</literal>.
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            <literal>COMMAND</literal> - <literal>ALTER TABLE</literal>,
+            <literal>SELECT</literal>, <literal>CREATE INDEX</literal>,
+            <literal>UPDATE</literal>, etc.
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            <literal>OBJECT_TYPE</literal> - <literal>TABLE</literal>,
+            <literal>INDEX</literal>, <literal>VIEW</literal>, etc.  Only
+            available for DML and certain DDL commands.
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            <literal>OBJECT_NAME</literal> - The fully-qualified object name
+            (e.g. public.account).  Only available for DML and certain DDL
+            commands.
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            <literal>STATEMENT</literal> - Statement execute on the backend.
+          </para>
+        </listitem>
+      </itemizedlist>
+    </para>
+  </sect2>
+
+  <sect2>
+    <title>Authors</title>
+
+    <para>
+      Abhijit Menon-Sen <email>ams@2ndQuadrant.com</email>, Ian Barwick <email>ian@2ndQuadrant.com</email>, and David Steele <email>david@pgmasters.net</email>.
+    </para>
+  </sect2>
+</sect1>

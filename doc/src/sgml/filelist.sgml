@@ -124,6 +124,7 @@
 <!ENTITY oid2name        SYSTEM "oid2name.sgml">
 <!ENTITY pageinspect     SYSTEM "pageinspect.sgml">
 <!ENTITY passwordcheck   SYSTEM "passwordcheck.sgml">
+<!ENTITY pgaudit         SYSTEM "pgaudit.sgml">
 <!ENTITY pgbench         SYSTEM "pgbench.sgml">
 <!ENTITY pgarchivecleanup SYSTEM "pgarchivecleanup.sgml">
 <!ENTITY pgbuffercache   SYSTEM "pgbuffercache.sgml">
