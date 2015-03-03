@@ -107,6 +107,10 @@ use constant
 	TYPE			=> 'TYPE',
 	TYPE_NONE		=> '',
 
+	TYPE_AGGREGATE	=> 'AGGREGATE',
+	TYPE_COLLATION	=> 'COLLATION',
+	TYPE_CONVERSION	=> 'CONVERSION',
+	TYPE_SCHEMA	    => 'SCHEMA',
 	TYPE_FUNCTION	=> 'FUNCTION',
 	TYPE_INDEX		=> 'INDEX',
 	TYPE_TABLE		=> 'TABLE',
@@ -168,10 +172,10 @@ my $strTemporaryAuditLog;	# pg_audit.log setting that was set hot
 my %oCommandHash =
 (&COMMAND_ANALYZE => {
 	&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_ALTER_AGGREGATE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+	&COMMAND_ALTER_AGGREGATE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_AGGREGATE},
 	&COMMAND_ALTER_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_ALTER_COLLATION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_ALTER_CONVERSION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+	&COMMAND_ALTER_COLLATION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_COLLATION},
+	&COMMAND_ALTER_CONVERSION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_CONVERSION},
 	&COMMAND_ALTER_ROLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
 	&COMMAND_ALTER_ROLE_SET => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_ALTER_ROLE},
@@ -185,18 +189,18 @@ my %oCommandHash =
 		&COMMAND => &COMMAND_COPY},
 	&COMMAND_COPY_TO => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_COPY},
-	&COMMAND_CREATE_AGGREGATE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_CREATE_CONVERSION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_CREATE_COLLATION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+	&COMMAND_CREATE_AGGREGATE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_AGGREGATE},
+	&COMMAND_CREATE_CONVERSION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_CONVERSION},
+	&COMMAND_CREATE_COLLATION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_COLLATION},
 	&COMMAND_CREATE_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
 	&COMMAND_CREATE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX},
 	&COMMAND_DEALLOCATE => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_DECLARE_CURSOR => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE},
 	&COMMAND_DO => {&CLASS => &CLASS_FUNCTION, &TYPE => &TYPE_NONE},
 	&COMMAND_DISCARD_ALL => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_CREATE_FUNCTION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+	&COMMAND_CREATE_FUNCTION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_FUNCTION},
 	&COMMAND_CREATE_ROLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_CREATE_SCHEMA => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+	&COMMAND_CREATE_SCHEMA => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_SCHEMA},
 	&COMMAND_CREATE_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
 	&COMMAND_CREATE_TABLE_AS => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
 	&COMMAND_DROP_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
@@ -214,13 +218,13 @@ my %oCommandHash =
 		&TYPE => &TYPE_FUNCTION, &COMMAND => &COMMAND_EXECUTE},
 	&COMMAND_EXPLAIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_FETCH => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_GRANT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+	&COMMAND_GRANT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
 	&COMMAND_PREPARE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_PREPARE},
 	&COMMAND_PREPARE_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_PREPARE},
 	&COMMAND_INSERT => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE},
-	&COMMAND_REVOKE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+	&COMMAND_REVOKE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
 	&COMMAND_SELECT => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE},
 	&COMMAND_SET => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_UPDATE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE}
@@ -797,9 +801,11 @@ sub PgAuditGrantSet
 	my $strColumn = shift;
 
 	# Create SQL to set the grant
-	PgLogExecute(COMMAND_GRANT, "grant " . lc(${strPrivilege}) .
-								(defined($strColumn) ? " (${strColumn})" : '') .
-								" on ${strObject} to ${strRole}");
+	PgLogExecute(COMMAND_GRANT, "GRANT " . 
+								(defined($strColumn) ?
+									lc(${strPrivilege}) ." (${strColumn})" :
+									uc(${strPrivilege})) .
+								" ON TABLE ${strObject} TO ${strRole} ");
 
 	$oAuditGrantHash{$strRole}{$strObject}{$strPrivilege} = true;
 }
@@ -815,9 +821,9 @@ sub PgAuditGrantReset
 	my $strColumn = shift;
 
 	# Create SQL to set the grant
-	PgLogExecute(COMMAND_REVOKE, "revoke " . lc(${strPrivilege}) .
+	PgLogExecute(COMMAND_REVOKE, "REVOKE  " . uc(${strPrivilege}) .
 				 (defined($strColumn) ? " (${strColumn})" : '') .
-				 " on ${strObject} from ${strRole}");
+				 " ON TABLE ${strObject} FROM ${strRole} ");
 
 	delete($oAuditGrantHash{$strRole}{$strObject}{$strPrivilege});
 }
@@ -825,8 +831,9 @@ sub PgAuditGrantReset
 ################################################################################
 # Main
 ################################################################################
-my @oyTable; # Store table info for select, insert, update, delete
-my $strSql;  # Hold Sql commands
+my @oyTable;    # Store table info for select, insert, update, delete
+my $strSql;     # Hold Sql commands
+my $strSubSql;  # Hold Sql subcommands
 
 # Drop the old cluster, build the code, and create a new cluster
 PgDrop();
@@ -847,10 +854,15 @@ PgAuditLogSet(CONTEXT_ROLE, 'user2', (CLASS_READ, CLASS_WRITE));
 
 # User1 follows the global log settings
 PgSetUser('user1');
-PgLogExecute(COMMAND_CREATE_TABLE, 'create table test (id int)', 'public.test');
+
+$strSql = 'CREATE  TABLE  public.test (id pg_catalog.int4   )  WITH (oids=OFF)  ';
+PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test');
 PgLogExecute(COMMAND_SELECT, 'select * from test');
 
-PgLogExecute(COMMAND_DROP_TABLE, 'drop table test', 'public.test');
+$strSql = 'drop table test';
+PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'public.test');
+# PgLogExecute(COMMAND_DROP_TABLE_TYPE, $strSql, 'public.test', false, false);
+# PgLogExecute(COMMAND_DROP_TABLE_TYPE, $strSql, 'public.test[]', false, true);
 
 PgSetUser('user2');
 PgLogExecute(COMMAND_CREATE_TABLE,
@@ -992,9 +1004,8 @@ PgAuditLogSet(CONTEXT_GLOBAL, undef, (CLASS_DDL, CLASS_READ));
 
 PgSetUser('user1');
 
-PgLogExecute(COMMAND_CREATE_TABLE,
-			 'create table account (id int, name text, password text,' .
-			 ' description text)', 'public.account');
+$strSql = 'CREATE  TABLE  public.account (id pg_catalog.int4   , name pg_catalog.text   COLLATE pg_catalog."default", password pg_catalog.text   COLLATE pg_catalog."default", description pg_catalog.text   COLLATE pg_catalog."default")  WITH (oids=OFF)  ';
+PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.account');
 PgLogExecute(COMMAND_SELECT,
 			 'select * from account');
 PgLogExecute(COMMAND_INSERT,
@@ -1091,17 +1102,18 @@ PgAuditLogSet(CONTEXT_GLOBAL, undef, (CLASS_ALL));
 PgLogExecute(COMMAND_SET, "set pg_audit.role = 'audit'");
 
 PgLogExecute(COMMAND_DO, "do \$\$\ begin raise notice 'test'; end; \$\$;");
-PgLogExecute(COMMAND_CREATE_SCHEMA, "create schema test");
+
+$strSql = 'CREATE SCHEMA  test ';
+PgLogExecute(COMMAND_CREATE_SCHEMA, $strSql, 'test');
 
 # Test COPY
 PgLogExecute(COMMAND_COPY_TO,
 			 "COPY pg_class to '" . abs_path($strTestPath) . "/class.out'");
-PgLogExecute(COMMAND_CREATE_TABLE_AS,
-			 "CREATE TABLE test.pg_class as select * from pg_class",
-			 'test.pg_class', true, false);
-PgLogExecute(COMMAND_INSERT,
-			 "CREATE TABLE test.pg_class as select * from pg_class",
-			 undef, false, true);
+             
+$strSql = 'CREATE  TABLE  test.pg_class     AS SELECT relname, relnamespace, reltype, reloftype, relowner, relam, relfilenode, reltablespace, relpages, reltuples, relallvisible, reltoastrelid, relhasindex, relisshared, relpersistence, relkind, relnatts, relchecks, relhasoids, relhaspkey, relhasrules, relhastriggers, relhassubclass, relrowsecurity, relispopulated, relreplident, relfrozenxid, relminmxid, relacl, reloptions FROM pg_catalog.pg_class ';
+PgLogExecute(COMMAND_INSERT, $strSql, undef, true, false);
+PgLogExecute(COMMAND_CREATE_TABLE_AS, $strSql, 'test.pg_class', false, true);
+
 PgLogExecute(COMMAND_INSERT,
 			 "COPY test.pg_class from '" . abs_path($strTestPath) .
 			 "/class.out'", undef, true, false);
@@ -1131,8 +1143,9 @@ PgLogExecute(COMMAND_COMMIT,
 			 'COMMIT');
 
 # Test prepared INSERT
-PgLogExecute(COMMAND_CREATE_TABLE,
-			 'create table test.test_insert (id int)', 'test.test_insert');
+$strSql = 'CREATE  TABLE  test.test_insert (id pg_catalog.int4   )  WITH (oids=OFF)  ';
+PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'test.test_insert');
+
 PgLogExecute(COMMAND_PREPARE_WRITE,
 			 'PREPARE pgclassstmt (oid) as insert' .
 			 ' into test.test_insert (id) values ($1)');
@@ -1142,18 +1155,16 @@ PgLogExecute(COMMAND_EXECUTE_WRITE,
 			 'EXECUTE pgclassstmt (1)', undef, false, true);
 
 # Create a table with a primary key
-PgLogExecute(COMMAND_CREATE_TABLE,
-			 'create table test (id int primary key, name text,' .
-			 'description text)',
-			 'public.test', true, false);
-PgLogExecute(COMMAND_CREATE_INDEX,
-			 'create table test (id int primary key, name text,' .
-			 'description text)',
-			 'public.test_pkey', false, true);
+$strSql = 'CREATE  TABLE  public.test (id pg_catalog.int4   , name pg_catalog.text   COLLATE pg_catalog."default", description pg_catalog.text   COLLATE pg_catalog."default", CONSTRAINT test_pkey PRIMARY KEY (id))  WITH (oids=OFF)  ';
+PgLogExecute(COMMAND_CREATE_INDEX, $strSql, 'public.test_pkey', true, false);
+PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test', false, true);
+
 PgLogExecute(COMMAND_ANALYZE, 'analyze test');
 
 # Grant select to public - this should have no affect on auditing
-PgLogExecute(COMMAND_GRANT, 'grant select on public.test to public');
+$strSql = 'GRANT SELECT ON TABLE public.test TO PUBLIC ';
+PgLogExecute(COMMAND_GRANT, $strSql);
+
 PgLogExecute(COMMAND_SELECT, 'select * from test');
 
 # Now grant select to audit and it should be logged
@@ -1164,7 +1175,10 @@ PgLogExecute(COMMAND_SELECT, 'select * from test', \@oyTable);
 
 # Check columns granted to public and make sure they do not log
 PgAuditGrantReset($strAuditRole, &COMMAND_SELECT, 'public.test');
-PgLogExecute(COMMAND_GRANT, 'grant select (name) on public.test to public');
+
+$strSql = 'GRANT select (name) ON TABLE public.test TO PUBLIC ';
+PgLogExecute(COMMAND_GRANT, $strSql);
+
 PgLogExecute(COMMAND_SELECT, 'select * from test');
 PgLogExecute(COMMAND_SELECT, 'select from test');
 
@@ -1206,7 +1220,10 @@ $strSql = 'do $$ ' .
 		  'end; $$';
 
 PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
-PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test_block', false, false);
+
+$strSubSql = 'CREATE  TABLE  public.test_block (id pg_catalog.int4   )  WITH (oids=OFF)  ';
+PgLogExecute(COMMAND_CREATE_TABLE, $strSubSql, 'public.test_block', false, false);
+
 PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'public.test_block', false, true);
 
 # Try explain
@@ -1223,50 +1240,52 @@ PgLogExecute(COMMAND_SELECT, 'select id from test');
 			 &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select name from test', \@oyTable);
 
+# Test alter and drop table statements
 PgLogExecute(COMMAND_ALTER_TABLE,
 			 'alter table test drop description', 'public.test');
 @oyTable = ({&NAME => 'public.test', &TYPE => &TYPE_TABLE,
 			 &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select from test', \@oyTable);
 
-PgLogExecute(COMMAND_ALTER_TABLE,
-			 'alter table test rename to test2', 'public.test');
-PgLogExecute(COMMAND_ALTER_TABLE,
-			 'alter table test2 set schema test', 'public.test2', true, false);
-PgLogExecute(COMMAND_ALTER_TABLE_INDEX, 'alter table test2 set schema test',
-										'public.test_pkey', false, true);
-PgLogExecute(COMMAND_ALTER_TABLE, 'alter table test.test2 add description text',
-								  'test.test2');
+$strSql = 'ALTER TABLE  public.test RENAME TO test2';
+PgLogExecute(COMMAND_ALTER_TABLE, $strSql, 'public.test2');
+
+$strSql = 'ALTER TABLE public.test2 SET SCHEMA test';
+PgLogExecute(COMMAND_ALTER_TABLE, $strSql, 'test.test2');
+
+$strSql = 'ALTER TABLE test.test2 ADD COLUMN description pg_catalog.text   COLLATE pg_catalog."default"';
+PgLogExecute(COMMAND_ALTER_TABLE, $strSql, 'test.test2');
+
 PgLogExecute(COMMAND_ALTER_TABLE, 'alter table test.test2 drop description',
 								  'test.test2');
-PgLogExecute(COMMAND_DROP_TABLE_INDEX, 'drop table test.test2',
-									   'test.test_pkey', false, false);
 PgLogExecute(COMMAND_DROP_TABLE, 'drop table test.test2',
 								 'test.test2', true, true);
 
-PgLogExecute(COMMAND_CREATE_FUNCTION, 'CREATE FUNCTION int_add(a int, b int)' .
-									  ' returns int as $$ begin return a + b;' .
-									  ' end $$language plpgsql');
+$strSql = "CREATE  FUNCTION public.int_add(IN a pg_catalog.int4 , IN b pg_catalog.int4 ) RETURNS  pg_catalog.int4 LANGUAGE plpgsql  VOLATILE  CALLED ON NULL INPUT SECURITY INVOKER COST 100   AS ' begin return a + b; end '";
+PgLogExecute(COMMAND_CREATE_FUNCTION, $strSql, 'public.int_add(integer,integer)');
 PgLogExecute(COMMAND_SELECT, "select int_add(1, 1)",
 							 undef, true, false);
 PgLogExecute(COMMAND_EXECUTE_FUNCTION, "select int_add(1, 1)",
 									   'public.int_add', false, true);
 
-PgLogExecute(COMMAND_CREATE_AGGREGATE, "CREATE AGGREGATE sum_test (int)" .
-							" (sfunc = int_add, stype = int, initcond = 0)");
-PgLogExecute(COMMAND_ALTER_AGGREGATE,
-			 "ALTER AGGREGATE sum_test (int) rename to sum_test2");
+$strSql = "CREATE AGGREGATE public.sum_test (   pg_catalog.int4) (SFUNC=public.int_add, STYPE=pg_catalog.int4, INITCOND='0')";
+PgLogExecute(COMMAND_CREATE_AGGREGATE, $strSql, 'public.sum_test(integer)');
 
-PgLogExecute(COMMAND_CREATE_COLLATION,
-			 "CREATE COLLATION collation_test FROM \"de_DE\"");
-PgLogExecute(COMMAND_ALTER_COLLATION,
-			 "ALTER COLLATION collation_test rename to collation_test2");
+# There's a bug here in deparse:
+# $strSql = "ALTER AGGREGATE public.sum_test(integer) RENAME TO sum_test2";
+# PgLogExecute(COMMAND_ALTER_AGGREGATE, $strSql, 'public.sum_test2(integer)');
 
-PgLogExecute(COMMAND_CREATE_CONVERSION,
-			 "CREATE CONVERSION conversion_test FOR 'SQL_ASCII' TO".
-			 " 'MULE_INTERNAL' FROM ascii_to_mic");
-PgLogExecute(COMMAND_ALTER_CONVERSION,
-			 "ALTER CONVERSION conversion_test rename to conversion_test2");
+$strSql = "CREATE COLLATION public.collation_test (LC_COLLATE = 'de_DE', LC_CTYPE = 'de_DE')";
+PgLogExecute(COMMAND_CREATE_COLLATION, $strSql, 'public.collation_test');
+
+$strSql =  "ALTER COLLATION public.collation_test RENAME TO collation_test2";
+PgLogExecute(COMMAND_ALTER_COLLATION, $strSql, 'public.collation_test2');
+
+$strSql = "CREATE  CONVERSION public.conversion_test FOR 'SQL_ASCII' TO 'MULE_INTERNAL' FROM pg_catalog.ascii_to_mic";
+PgLogExecute(COMMAND_CREATE_CONVERSION, $strSql, 'public.conversion_test');
+
+$strSql = "ALTER CONVERSION public.conversion_test RENAME TO conversion_test2";
+PgLogExecute(COMMAND_ALTER_CONVERSION, $strSql, 'public.conversion_test2');
 
 PgLogExecute(COMMAND_CREATE_DATABASE, "CREATE DATABASE database_test");
 PgLogExecute(COMMAND_ALTER_DATABASE,
