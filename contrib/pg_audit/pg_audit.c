@@ -30,6 +30,7 @@
 #include "libpq/auth.h"
 #include "nodes/nodes.h"
 #include "tcop/utility.h"
+#include "common/fe_memutils.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
@@ -138,16 +139,19 @@ typedef struct
 	char *objectName;
 	const char *commandText;
 	bool granted;
+	bool logged;
 } AuditEvent;
 
 /*
- * Set if a function below log_utility_command() has logged the event - prevents
- * more than one function from logging when the event could be logged in
- * multiple places.
+ * A simple FIFO queue to keep track of the current stack of audit events.
  */
-bool utilityCommandLogged = false;
-bool utilityCommandInProgress = false;
-AuditEvent utilityAuditEvent;
+typedef struct AuditEventStackItem
+{
+	struct AuditEventStackItem *next;
+	AuditEvent auditEvent;
+} AuditEventStackItem;
+
+AuditEventStackItem *auditEventStack = NULL;
 
 /*
  * Takes an AuditEvent and returns true or false depending on whether the event
@@ -236,21 +240,23 @@ log_check(AuditEvent *e, const char **classname)
  * values must be set to "" so that they can be logged without error checking).
  */
 static void
-log_audit_event(AuditEvent *e)
+log_audit_event(AuditEvent *auditEvent)
 {
 	const char *classname;
 
 	/* Check that this event should be logged. */
-	if (!log_check(e, &classname))
+	if (!log_check(auditEvent, &classname))
 		return;
 
 	/* Log via ereport(). */
 	ereport(LOG,
 			(errmsg("AUDIT: %s,%s,%s,%s,%s,%s",
-					e->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
-					classname, e->command, e->objectType, e->objectName,
-					e->commandText),
+					auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
+					classname, auditEvent->command, auditEvent->objectType,
+					auditEvent->objectName, auditEvent->commandText),
 			 errhidestmt(true)));
+			 
+	auditEvent->logged = true;
 }
 
 /*
@@ -460,10 +466,10 @@ log_attribute_check_any(Oid relOid,
 }
 
 /*
- * Create AuditEvents for DML operations via executor permissions checks.
+ * Create AuditEvents for SELECT/DML operations via executor permissions checks.
  */
 static void
-log_dml(Oid auditOid, List *rangeTabls)
+log_select_dml(Oid auditOid, List *rangeTabls)
 {
 	ListCell *lr;
 	bool first = true;
@@ -655,15 +661,16 @@ log_dml(Oid auditOid, List *rangeTabls)
 	 * If the first flag was never set to false, then rangeTabls was empty. In
 	 * this case log a session select statement.
 	 */
-	if (first/* && !utilityCommandInProgress*/)
+	if (first)
 	{
 		auditEvent.logStmtLevel = LOGSTMT_ALL;
 		auditEvent.commandTag = T_SelectStmt;
 		auditEvent.command = COMMAND_SELECT;
-		auditEvent.granted = false;
-		auditEvent.commandText = debug_query_string;
 		auditEvent.objectName = "";
 		auditEvent.objectType = "";
+		auditEvent.commandText = debug_query_string;
+		auditEvent.granted = false;
+		auditEvent.logged = false;
 
 		log_audit_event(&auditEvent);
 	}
@@ -695,7 +702,7 @@ log_create_alter_drop(Oid classId,
 
 		/* Get rel information and close it */
 		class = RelationGetForm(rel);
-		utilityAuditEvent.objectName =
+		auditEventStack->auditEvent.objectName =
 			quote_qualified_identifier(get_namespace_name(
 									   RelationGetNamespace(rel)),
 									   RelationGetRelationName(rel));
@@ -705,31 +712,31 @@ log_create_alter_drop(Oid classId,
 		switch (class->relkind)
 		{
 			case RELKIND_RELATION:
-				utilityAuditEvent.objectType = OBJECT_TYPE_TABLE;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_TABLE;
 				break;
 
 			case RELKIND_INDEX:
-				utilityAuditEvent.objectType = OBJECT_TYPE_INDEX;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_INDEX;
 				break;
 
 			case RELKIND_SEQUENCE:
-				utilityAuditEvent.objectType = OBJECT_TYPE_SEQUENCE;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_SEQUENCE;
 				break;
 
 			case RELKIND_VIEW:
-				utilityAuditEvent.objectType = OBJECT_TYPE_VIEW;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_VIEW;
 				break;
 
 			case RELKIND_COMPOSITE_TYPE:
-				utilityAuditEvent.objectType = OBJECT_TYPE_COMPOSITE_TYPE;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_COMPOSITE_TYPE;
 				break;
 
 			case RELKIND_FOREIGN_TABLE:
-				utilityAuditEvent.objectType = OBJECT_TYPE_FOREIGN_TABLE;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_FOREIGN_TABLE;
 				break;
 
 			case RELKIND_MATVIEW:
-				utilityAuditEvent.objectType = OBJECT_TYPE_MATVIEW;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_MATVIEW;
 				break;
 
 			/*
@@ -741,8 +748,7 @@ log_create_alter_drop(Oid classId,
 		}
 
 		/* Log the event */
-		log_audit_event(&utilityAuditEvent);
-		utilityCommandLogged = true;
+		log_audit_event(&auditEventStack->auditEvent);
 	}
 }
 
@@ -755,6 +761,7 @@ log_function_execute(Oid objectId)
 {
 	HeapTuple proctup;
 	Form_pg_proc proc;
+	AuditEvent auditEvent;
 
 	/* Get info about the function. */
 	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(objectId));
@@ -774,20 +781,21 @@ log_function_execute(Oid objectId)
 	}
 
 	/* Generate the fully-qualified function name. */
-	utilityAuditEvent.objectName =
+	auditEvent.objectName =
 		quote_qualified_identifier(get_namespace_name(proc->pronamespace),
 								   NameStr(proc->proname));
 	ReleaseSysCache(proctup);
 
-	/* Log the event */
-	utilityAuditEvent.logStmtLevel = LOGSTMT_ALL;
-	utilityAuditEvent.commandTag = T_DoStmt;
-	utilityAuditEvent.command = COMMAND_EXECUTE;
-	utilityAuditEvent.objectType = OBJECT_TYPE_FUNCTION;
-	utilityAuditEvent.commandText = debug_query_string;
+	/* Log the function call */
+	auditEvent.logStmtLevel = LOGSTMT_ALL;
+	auditEvent.commandTag = T_DoStmt;
+	auditEvent.command = COMMAND_EXECUTE;
+	auditEvent.objectType = OBJECT_TYPE_FUNCTION;
+	auditEvent.commandText = debug_query_string;
+	auditEvent.granted = false;
+	auditEvent.logged = false;
 
-	log_audit_event(&utilityAuditEvent);
-	utilityCommandLogged = true;
+	log_audit_event(&auditEvent);
 }
 
 /*
@@ -871,7 +879,7 @@ pgaudit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
 	/* Log DML if the audit role is valid or session logging is enabled. */
 	if ((auditOid != InvalidOid || auditLogBitmap != 0) &&
 		!IsAbortedTransactionBlockState())
-		log_dml(auditOid, rangeTabls);
+		log_select_dml(auditOid, rangeTabls);
 
 	/* Call the next hook function. */
 	if (next_ExecutorCheckPerms_hook &&
@@ -892,24 +900,36 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 							DestReceiver *dest,
 							char *completionTag)
 {
-	/* Create the utility audit event. */
-	utilityCommandLogged = false;
-	utilityCommandInProgress = true;
+	AuditEventStackItem *stackItem;
+	
+	/* Allocate the audit event */
+	stackItem = malloc(sizeof(AuditEventStackItem));
 
-	utilityAuditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
-	utilityAuditEvent.commandTag = nodeTag(parsetree);
-	utilityAuditEvent.command = CreateCommandTag(parsetree);
-	utilityAuditEvent.objectName = "";
-	utilityAuditEvent.objectType = "";
-	utilityAuditEvent.commandText = debug_query_string;
-	utilityAuditEvent.granted = false;
+	/* Initialize the audit event. */
+	stackItem->auditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
+	stackItem->auditEvent.commandTag = nodeTag(parsetree);
+	stackItem->auditEvent.command = CreateCommandTag(parsetree);
+	stackItem->auditEvent.objectName = "";
+	stackItem->auditEvent.objectType = "";
+	stackItem->auditEvent.commandText = debug_query_string;
+	stackItem->auditEvent.granted = false;
+	stackItem->auditEvent.logged = false;
+
+	/* If there already an is an event on the stack, push it down */
+	if (auditEventStack != NULL)
+		stackItem->next = auditEventStack;
+	else
+		stackItem->next = NULL;
+	
+	/* Push new event on top of the stack */
+	auditEventStack = stackItem; 
 
 	/* If this is a DO block always log it */
 	if (auditLogBitmap != 0 &&
-		utilityAuditEvent.commandTag == T_DoStmt &&
+		stackItem->auditEvent.commandTag == T_DoStmt &&
 		!IsAbortedTransactionBlockState())
 	{
-		log_audit_event(&utilityAuditEvent);
+		log_audit_event(&stackItem->auditEvent);
 	}
 
 	/* Call the standard process utility chain. */
@@ -922,13 +942,15 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 
 	/* Log the utility command if logging is on, the command has not already
 	 * been logged by another hook, and the transaction is not aborted */
-	if (auditLogBitmap != 0 && !utilityCommandLogged &&
-		nodeTag(parsetree) != T_DoStmt && !IsAbortedTransactionBlockState())
+	if (auditLogBitmap != 0 && !stackItem->auditEvent.logged &&
+		!IsAbortedTransactionBlockState())
 	{
-		log_audit_event(&utilityAuditEvent);
+		log_audit_event(&stackItem->auditEvent);
 	}
 
-	utilityCommandInProgress = false;
+	/* Pop the audit event off the stack */
+	auditEventStack = stackItem->next;
+	free(stackItem);
 }
 
 /*
