@@ -487,7 +487,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 {
 	ListCell *lr;
 	bool first = true;
-	AuditEvent auditEvent;
+//	AuditEvent auditEvent;
 
 	/* Do not log if this is an internal statement */
 	if (internalStatement)
@@ -520,49 +520,53 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		 * the node type, object type, and command tag by decoding
 		 * rte->requiredPerms and rte->relkind.
 		 */
-		auditEvent.logStmtLevel = LOGSTMT_MOD;
+		auditEventStack->auditEvent.logStmtLevel = LOGSTMT_MOD;
 
 		if (rte->requiredPerms & ACL_INSERT)
 		{
-			auditEvent.commandTag = T_InsertStmt;
-			auditEvent.command = COMMAND_INSERT;
+			auditEventStack->auditEvent.commandTag = T_InsertStmt;
+			auditEventStack->auditEvent.command = COMMAND_INSERT;
 		}
 		else if (rte->requiredPerms & ACL_UPDATE)
 		{
-			auditEvent.commandTag = T_UpdateStmt;
-			auditEvent.command = COMMAND_UPDATE;
+			auditEventStack->auditEvent.commandTag = T_UpdateStmt;
+			auditEventStack->auditEvent.command = COMMAND_UPDATE;
 		}
 		else if (rte->requiredPerms & ACL_DELETE)
 		{
-			auditEvent.commandTag = T_DeleteStmt;
-			auditEvent.command = COMMAND_DELETE;
+			auditEventStack->auditEvent.commandTag = T_DeleteStmt;
+			auditEventStack->auditEvent.command = COMMAND_DELETE;
 		}
 		else if (rte->requiredPerms & ACL_SELECT)
 		{
-			auditEvent.logStmtLevel = LOGSTMT_ALL;
-			auditEvent.commandTag = T_SelectStmt;
-			auditEvent.command = COMMAND_SELECT;
+			auditEventStack->auditEvent.logStmtLevel = LOGSTMT_ALL;
+			auditEventStack->auditEvent.commandTag = T_SelectStmt;
+			auditEventStack->auditEvent.command = COMMAND_SELECT;
 		}
 		else
 		{
-			auditEvent.commandTag = T_Invalid;
-			auditEvent.command = COMMAND_UNKNOWN;
+			auditEventStack->auditEvent.commandTag = T_Invalid;
+			auditEventStack->auditEvent.command = COMMAND_UNKNOWN;
 		}
 
 		/*
 		 * Fill values in the event struct that are required for session
 		 * logging.
 		 */
-		auditEvent.granted = false;
-		auditEvent.commandText = debug_query_string;
+		auditEventStack->auditEvent.granted = false;
+//		auditEventStack->auditEvent.commandText = debug_query_string;
 
 		/* If this is the first rte then session log */
 		if (first)
 		{
-			auditEvent.objectName = "";
-			auditEvent.objectType = "";
+			auditEventStack->auditEvent.objectName = "";
+			auditEventStack->auditEvent.objectType = "";
 
-			log_audit_event(&auditEvent);
+			ereport(LOG,
+					(errmsg("SESSION LOG: %s", auditEventStack->auditEvent.commandText),
+					 errhidestmt(true)));
+
+			log_audit_event(&auditEventStack->auditEvent);
 
 			first = false;
 		}
@@ -571,44 +575,44 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		switch (rte->relkind)
 		{
 			case RELKIND_RELATION:
-				auditEvent.objectType = OBJECT_TYPE_TABLE;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_TABLE;
 				break;
 
 			case RELKIND_INDEX:
-				auditEvent.objectType = OBJECT_TYPE_INDEX;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_INDEX;
 				break;
 
 			case RELKIND_SEQUENCE:
-				auditEvent.objectType = OBJECT_TYPE_SEQUENCE;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_SEQUENCE;
 				break;
 
 			case RELKIND_TOASTVALUE:
-				auditEvent.objectType = OBJECT_TYPE_TOASTVALUE;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_TOASTVALUE;
 				break;
 
 			case RELKIND_VIEW:
-				auditEvent.objectType = OBJECT_TYPE_VIEW;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_VIEW;
 				break;
 
 			case RELKIND_COMPOSITE_TYPE:
-				auditEvent.objectType = OBJECT_TYPE_COMPOSITE_TYPE;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_COMPOSITE_TYPE;
 				break;
 
 			case RELKIND_FOREIGN_TABLE:
-				auditEvent.objectType = OBJECT_TYPE_FOREIGN_TABLE;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_FOREIGN_TABLE;
 				break;
 
 			case RELKIND_MATVIEW:
-				auditEvent.objectType = OBJECT_TYPE_MATVIEW;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_MATVIEW;
 				break;
 
 			default:
-				auditEvent.objectType = OBJECT_TYPE_UNKNOWN;
+				auditEventStack->auditEvent.objectType = OBJECT_TYPE_UNKNOWN;
 				break;
 		}
 
 		/* Get the relation name */
-		auditEvent.objectName =
+		auditEventStack->auditEvent.objectName =
 			quote_qualified_identifier(get_namespace_name(
 									   RelationGetNamespace(rel)),
 									   RelationGetRelationName(rel));
@@ -626,7 +630,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 			 */
 			if (log_relation_check(relOid, auditOid, auditPerms))
 			{
-				auditEvent.granted = true;
+				auditEventStack->auditEvent.granted = true;
 			}
 
 			/*
@@ -641,7 +645,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 				 */
 				if (auditPerms & ACL_SELECT)
 				{
-					auditEvent.granted =
+					auditEventStack->auditEvent.granted =
 						log_attribute_check_any(relOid, auditOid,
 												rte->selectedCols,
 												ACL_SELECT);
@@ -651,13 +655,13 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 				 * Check the modified columns to see if the audit role has
 				 * privileges on any of them.
 				 */
-				if (!auditEvent.granted)
+				if (!auditEventStack->auditEvent.granted)
 				{
 					auditPerms &= (ACL_INSERT | ACL_UPDATE);
 
 					if (auditPerms)
 					{
-						auditEvent.granted =
+						auditEventStack->auditEvent.granted =
 							log_attribute_check_any(relOid, auditOid,
 													rte->modifiedCols,
 													auditPerms);
@@ -667,12 +671,12 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		}
 
 		/* Only do relation level logging if a grant was found. */
-		if (auditEvent.granted)
+		if (auditEventStack->auditEvent.granted)
 		{
-			log_audit_event(&auditEvent);
+			log_audit_event(&auditEventStack->auditEvent);
 		}
 
-		pfree(auditEvent.objectName);
+		pfree(auditEventStack->auditEvent.objectName);
 	}
 
 	/*
@@ -681,17 +685,24 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 	 */
 	if (first)
 	{
-		auditEvent.logStmtLevel = LOGSTMT_ALL;
-		auditEvent.commandTag = T_SelectStmt;
-		auditEvent.command = COMMAND_SELECT;
-		auditEvent.objectName = "";
-		auditEvent.objectType = "";
-		auditEvent.commandText = debug_query_string;
-		auditEvent.granted = false;
-		auditEvent.logged = false;
+		auditEventStack->auditEvent.logStmtLevel = LOGSTMT_ALL;
+		auditEventStack->auditEvent.commandTag = T_SelectStmt;
+		auditEventStack->auditEvent.command = COMMAND_SELECT;
+		auditEventStack->auditEvent.objectName = "";
+		auditEventStack->auditEvent.objectType = "";
+//		auditEventStack->auditEvent.commandText = debug_query_string;
+		auditEventStack->auditEvent.granted = false;
+		auditEventStack->auditEvent.logged = false;
 
-		log_audit_event(&auditEvent);
+		ereport(LOG,
+				(errmsg("SESSION DEFAULT LOG: %s", auditEventStack->auditEvent.commandText),
+				 errhidestmt(true)));
+
+		log_audit_event(&auditEventStack->auditEvent);
 	}
+	
+	auditEventStack = auditEventStack->next;
+//	pfree(stackItem);
 }
 
 /*
@@ -882,6 +893,63 @@ log_object_access(ObjectAccessType access,
 static ExecutorCheckPerms_hook_type next_ExecutorCheckPerms_hook = NULL;
 static ProcessUtility_hook_type next_ProcessUtility_hook = NULL;
 static object_access_hook_type next_object_access_hook = NULL;
+static ExecutorStart_hook_type next_ExecutorStart_hook = NULL;
+
+/*
+ * Hook ExecutorStart to get the query.
+ */
+static void
+pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
+{
+	AuditEventStackItem *stackItem = NULL;
+
+	if (!internalStatement/* && queryDesc->sourceText*/)
+	{
+		/* Allocate the audit event */
+		stackItem = palloc(sizeof(AuditEventStackItem));
+
+		/* Initialize the audit event. */
+		// stackItem->auditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
+		// stackItem->auditEvent.commandTag = nodeTag(parsetree);
+		// stackItem->auditEvent.command = CreateCommandTag(parsetree);
+		stackItem->auditEvent.objectName = "";
+		stackItem->auditEvent.objectType = "";
+		stackItem->auditEvent.commandText = queryDesc->sourceText;
+		stackItem->auditEvent.granted = false;
+		stackItem->auditEvent.logged = false;
+
+		/* If there already an is an event on the stack, push it down */
+		if (auditEventStack != NULL)
+			stackItem->next = auditEventStack;
+		else
+		{
+			stackItem->next = NULL;
+
+			/* Reset internal statement in case of previous error */
+			internalStatement = false;
+		}
+	
+		/* Push new event on top of the stack */
+		auditEventStack = stackItem; 
+		
+		ereport(LOG,
+				(errmsg("STATEMENT: %s", queryDesc->sourceText),
+				 errhidestmt(true)));
+	}
+
+	/* Call the previous hook or standard function */
+	if (next_ExecutorStart_hook)
+		next_ExecutorStart_hook(queryDesc, eflags);
+	else
+		standard_ExecutorStart(queryDesc, eflags);
+
+	// /* Pop the audit event off the stack */
+	// if (stackItem)
+	// {
+	// 	auditEventStack = stackItem->next;
+	// 	pfree(stackItem);
+	// }
+}
 
 /*
  * Hook ExecutorCheckPerms to do session and object auditing for DML.
@@ -919,6 +987,10 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 							char *completionTag)
 {
 	AuditEventStackItem *stackItem;
+
+	ereport(LOG,
+			(errmsg("UTILITY: %s", debug_query_string),
+			 errhidestmt(true)));
 	
 	/* Allocate the audit event */
 	stackItem = palloc(sizeof(AuditEventStackItem));
@@ -968,6 +1040,9 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 	if (auditLogBitmap != 0 && !stackItem->auditEvent.logged &&
 		!IsAbortedTransactionBlockState())
 	{
+		ereport(LOG,
+				(errmsg("UTILITY LOG: %s", debug_query_string),
+				 errhidestmt(true)));
 		log_audit_event(&stackItem->auditEvent);
 	}
 
@@ -1351,6 +1426,9 @@ _PG_init(void)
 	 * Install our hook functions after saving the existing pointers to preserve
 	 * the chain.
 	 */
+	next_ExecutorStart_hook = ExecutorStart_hook;
+	ExecutorStart_hook = pgaudit_ExecutorStart_hook;
+
 	next_ExecutorCheckPerms_hook = ExecutorCheckPerms_hook;
 	ExecutorCheckPerms_hook = pgaudit_ExecutorCheckPerms_hook;
 

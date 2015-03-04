@@ -1114,12 +1114,9 @@ $strSql = 'CREATE  TABLE  test.pg_class     AS SELECT relname, relnamespace, rel
 PgLogExecute(COMMAND_INSERT, $strSql, undef, true, false);
 PgLogExecute(COMMAND_CREATE_TABLE_AS, $strSql, 'test.pg_class', false, true);
 
-PgLogExecute(COMMAND_INSERT,
-			 "COPY test.pg_class from '" . abs_path($strTestPath) .
-			 "/class.out'", undef, true, false);
-PgLogExecute(COMMAND_COPY_FROM,
-			 "COPY test.pg_class from '" . abs_path($strTestPath) .
-			 "/class.out'", undef, false, true);
+$strSql = "COPY test.pg_class from '" . abs_path($strTestPath) . "/class.out'";
+PgLogExecute(COMMAND_INSERT, $strSql);
+#PgLogExecute(COMMAND_COPY_FROM, $strSql, undef, false, true);
 
 # Test prepared SELECT
 PgLogExecute(COMMAND_PREPARE_READ,
@@ -1146,13 +1143,12 @@ PgLogExecute(COMMAND_COMMIT,
 $strSql = 'CREATE  TABLE  test.test_insert (id pg_catalog.int4   )  WITH (oids=OFF)  ';
 PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'test.test_insert');
 
-PgLogExecute(COMMAND_PREPARE_WRITE,
-			 'PREPARE pgclassstmt (oid) as insert' .
-			 ' into test.test_insert (id) values ($1)');
-PgLogExecute(COMMAND_INSERT,
-			 'EXECUTE pgclassstmt (1)', undef, true, false);
-PgLogExecute(COMMAND_EXECUTE_WRITE,
-			 'EXECUTE pgclassstmt (1)', undef, false, true);
+$strSql = 'PREPARE pgclassstmt (oid) as insert into test.test_insert (id) values ($1)';
+PgLogExecute(COMMAND_PREPARE_WRITE, $strSql);
+PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+
+$strSql = 'EXECUTE pgclassstmt (1)';
+PgLogExecute(COMMAND_EXECUTE_WRITE, $strSql, undef, true, true);
 
 # Create a table with a primary key
 $strSql = 'CREATE  TABLE  public.test (id pg_catalog.int4   , name pg_catalog.text   COLLATE pg_catalog."default", description pg_catalog.text   COLLATE pg_catalog."default", CONSTRAINT test_pkey PRIMARY KEY (id))  WITH (oids=OFF)  ';
@@ -1187,8 +1183,9 @@ PgLogExecute(COMMAND_SELECT, 'select 1, current_timestamp');
 
 # Now try the same in a do block
 $strSql = 'do $$ declare test int; begin select 1 into test; end $$';
-
 PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
+
+$strSql = 'select 1';
 PgLogExecute(COMMAND_SELECT, $strSql, undef, false, true);
 
 # Insert some data into test and try a loop in a do block
@@ -1205,9 +1202,12 @@ $strSql = 'do $$ ' .
 		  '    end loop; ' .
 		  'end; $$';
 
-# Create a function with a select statement then call it in a do block
 PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
+
+$strSql = 'select id from test';
 PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
+
+$strSql = 'insert into test (id) values (result.id + 100)';
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, true);
