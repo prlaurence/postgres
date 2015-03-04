@@ -51,70 +51,76 @@ use constant
 	COMMAND						=> 'COMMAND',
 	COMMAND_LOG					=> 'COMMAND_LOG',
 
-	COMMAND_ANALYZE				=> 'ANALYZE',
-	COMMAND_ALTER_AGGREGATE		=> 'ALTER AGGREGATE',
-	COMMAND_ALTER_COLLATION		=> 'ALTER COLLATION',
-	COMMAND_ALTER_CONVERSION	=> 'ALTER CONVERSION',
-	COMMAND_ALTER_DATABASE		=> 'ALTER DATABASE',
-	COMMAND_ALTER_ROLE			=> 'ALTER ROLE',
-	COMMAND_ALTER_ROLE_SET		=> 'ALTER ROLE SET',
-	COMMAND_ALTER_TABLE			=> 'ALTER TABLE',
-	COMMAND_ALTER_TABLE_INDEX	=> 'ALTER TABLE INDEX',
-	COMMAND_BEGIN				=> 'BEGIN',
-	COMMAND_CLOSE				=> 'CLOSE CURSOR',
-	COMMAND_COMMIT				=> 'COMMIT',
-	COMMAND_COPY				=> 'COPY',
-	COMMAND_COPY_TO				=> 'COPY TO',
-	COMMAND_COPY_FROM			=> 'COPY FROM',
-	COMMAND_CREATE_AGGREGATE	=> 'CREATE AGGREGATE',
-	COMMAND_CREATE_COLLATION	=> 'CREATE COLLATION',
-	COMMAND_CREATE_CONVERSION	=> 'CREATE CONVERSION',
-	COMMAND_CREATE_DATABASE		=> 'CREATE DATABASE',
-	COMMAND_CREATE_INDEX		=> 'CREATE INDEX',
-	COMMAND_DEALLOCATE			=> 'DEALLOCATE',
-	COMMAND_DECLARE_CURSOR		=> 'DECLARE CURSOR',
-	COMMAND_DO					=> 'DO',
-	COMMAND_DISCARD_ALL			=> 'DISCARD ALL',
-	COMMAND_CREATE_FUNCTION		=> 'CREATE FUNCTION',
-	COMMAND_CREATE_ROLE			=> 'CREATE ROLE',
-	COMMAND_CREATE_SCHEMA		=> 'CREATE SCHEMA',
-	COMMAND_CREATE_TABLE		=> 'CREATE TABLE',
-	COMMAND_CREATE_TABLE_AS		=> 'CREATE TABLE AS',
-	COMMAND_DROP_DATABASE		=> 'DROP DATABASE',
-	COMMAND_DROP_SCHEMA			=> 'DROP SCHEMA',
-	COMMAND_DROP_TABLE			=> 'DROP TABLE',
-	COMMAND_DROP_TABLE_INDEX	=> 'DROP TABLE INDEX',
-	COMMAND_DROP_TABLE_TYPE		=> 'DROP TABLE TYPE',
-	COMMAND_EXECUTE				=> 'EXECUTE',
-	COMMAND_EXECUTE_READ		=> 'EXECUTE READ',
-	COMMAND_EXECUTE_WRITE		=> 'EXECUTE WRITE',
-	COMMAND_EXECUTE_FUNCTION	=> 'EXECUTE FUNCTION',
-	COMMAND_EXPLAIN				=> 'EXPLAIN',
-	COMMAND_FETCH				=> 'FETCH',
-	COMMAND_GRANT				=> 'GRANT',
-	COMMAND_INSERT				=> 'INSERT',
-	COMMAND_PREPARE				=> 'PREPARE',
-	COMMAND_PREPARE_READ		=> 'PREPARE READ',
-	COMMAND_PREPARE_WRITE		=> 'PREPARE WRITE',
-	COMMAND_REVOKE				=> 'REVOKE',
-	COMMAND_SELECT				=> 'SELECT',
-	COMMAND_SET					=> 'SET',
-	COMMAND_UPDATE				=> 'UPDATE'
+	COMMAND_ANALYZE					=> 'ANALYZE',
+	COMMAND_ALTER_AGGREGATE			=> 'ALTER AGGREGATE',
+	COMMAND_ALTER_COLLATION			=> 'ALTER COLLATION',
+	COMMAND_ALTER_CONVERSION		=> 'ALTER CONVERSION',
+	COMMAND_ALTER_DATABASE			=> 'ALTER DATABASE',
+	COMMAND_ALTER_ROLE				=> 'ALTER ROLE',
+	COMMAND_ALTER_ROLE_SET			=> 'ALTER ROLE SET',
+	COMMAND_ALTER_TABLE				=> 'ALTER TABLE',
+	COMMAND_ALTER_TABLE_COLUMN		=> 'ALTER TABLE COLUMN',
+	COMMAND_ALTER_TABLE_INDEX		=> 'ALTER TABLE INDEX',
+	COMMAND_BEGIN					=> 'BEGIN',
+	COMMAND_CLOSE					=> 'CLOSE CURSOR',
+	COMMAND_COMMIT					=> 'COMMIT',
+	COMMAND_COPY					=> 'COPY',
+	COMMAND_COPY_TO					=> 'COPY TO',
+	COMMAND_COPY_FROM				=> 'COPY FROM',
+	COMMAND_CREATE_AGGREGATE		=> 'CREATE AGGREGATE',
+	COMMAND_CREATE_COLLATION		=> 'CREATE COLLATION',
+	COMMAND_CREATE_CONVERSION		=> 'CREATE CONVERSION',
+	COMMAND_CREATE_DATABASE			=> 'CREATE DATABASE',
+	COMMAND_CREATE_INDEX			=> 'CREATE INDEX',
+	COMMAND_DEALLOCATE				=> 'DEALLOCATE',
+	COMMAND_DECLARE_CURSOR			=> 'DECLARE CURSOR',
+	COMMAND_DO						=> 'DO',
+	COMMAND_DISCARD_ALL				=> 'DISCARD ALL',
+	COMMAND_CREATE_FUNCTION			=> 'CREATE FUNCTION',
+	COMMAND_CREATE_ROLE				=> 'CREATE ROLE',
+	COMMAND_CREATE_SCHEMA			=> 'CREATE SCHEMA',
+	COMMAND_CREATE_TABLE			=> 'CREATE TABLE',
+	COMMAND_CREATE_TABLE_AS			=> 'CREATE TABLE AS',
+	COMMAND_DROP_DATABASE			=> 'DROP DATABASE',
+	COMMAND_DROP_SCHEMA				=> 'DROP SCHEMA',
+	COMMAND_DROP_TABLE				=> 'DROP TABLE',
+	COMMAND_DROP_TABLE_CONSTRAINT	=> 'DROP TABLE CONSTRAINT',
+	COMMAND_DROP_TABLE_INDEX		=> 'DROP TABLE INDEX',
+	COMMAND_DROP_TABLE_TOAST		=> 'DROP TABLE TOAST',
+	COMMAND_DROP_TABLE_TYPE			=> 'DROP TABLE TYPE',
+	COMMAND_EXECUTE					=> 'EXECUTE',
+	COMMAND_EXECUTE_READ			=> 'EXECUTE READ',
+	COMMAND_EXECUTE_WRITE			=> 'EXECUTE WRITE',
+	COMMAND_EXECUTE_FUNCTION		=> 'EXECUTE FUNCTION',
+	COMMAND_EXPLAIN					=> 'EXPLAIN',
+	COMMAND_FETCH					=> 'FETCH',
+	COMMAND_GRANT					=> 'GRANT',
+	COMMAND_INSERT					=> 'INSERT',
+	COMMAND_PREPARE					=> 'PREPARE',
+	COMMAND_PREPARE_READ			=> 'PREPARE READ',
+	COMMAND_PREPARE_WRITE			=> 'PREPARE WRITE',
+	COMMAND_REVOKE					=> 'REVOKE',
+	COMMAND_SELECT					=> 'SELECT',
+	COMMAND_SET						=> 'SET',
+	COMMAND_UPDATE					=> 'UPDATE'
 };
 
 use constant
 {
-	TYPE			=> 'TYPE',
-	TYPE_NONE		=> '',
+	TYPE					=> 'TYPE',
+	TYPE_NONE				=> '',
 
-	TYPE_AGGREGATE	=> 'AGGREGATE',
-	TYPE_COLLATION	=> 'COLLATION',
-	TYPE_CONVERSION	=> 'CONVERSION',
-	TYPE_SCHEMA	    => 'SCHEMA',
-	TYPE_FUNCTION	=> 'FUNCTION',
-	TYPE_INDEX		=> 'INDEX',
-	TYPE_TABLE		=> 'TABLE',
-	TYPE_TYPE		=> 'TYPE'
+	TYPE_AGGREGATE			=> 'AGGREGATE',
+	TYPE_COLLATION			=> 'COLLATION',
+	TYPE_CONVERSION			=> 'CONVERSION',
+	TYPE_SCHEMA				=> 'SCHEMA',
+	TYPE_FUNCTION			=> 'FUNCTION',
+	TYPE_INDEX				=> 'INDEX',
+	TYPE_TABLE				=> 'TABLE',
+	TYPE_TABLE_COLUMN		=> 'TABLE COLUMN',
+	TYPE_TABLE_CONSTRAINT	=> 'TABLE CONSTRAINT',
+	TYPE_TABLE_TOAST		=> 'TABLE TOAST',
+	TYPE_TYPE				=> 'TYPE'
 };
 
 use constant
@@ -180,6 +186,8 @@ my %oCommandHash =
 	&COMMAND_ALTER_ROLE_SET => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_ALTER_ROLE},
 	&COMMAND_ALTER_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
+	&COMMAND_ALTER_TABLE_COLUMN => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE_COLUMN,
+		&COMMAND => &COMMAND_ALTER_TABLE},
 	&COMMAND_ALTER_TABLE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX,
 		&COMMAND => &COMMAND_ALTER_TABLE},
 	&COMMAND_BEGIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
@@ -206,7 +214,11 @@ my %oCommandHash =
 	&COMMAND_DROP_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
 	&COMMAND_DROP_SCHEMA => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
 	&COMMAND_DROP_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
+	&COMMAND_DROP_TABLE_CONSTRAINT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE_CONSTRAINT,
+		&COMMAND => &COMMAND_DROP_TABLE},
 	&COMMAND_DROP_TABLE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX,
+		&COMMAND => &COMMAND_DROP_TABLE},
+	&COMMAND_DROP_TABLE_TOAST => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE_TOAST,
 		&COMMAND => &COMMAND_DROP_TABLE},
 	&COMMAND_DROP_TABLE_TYPE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TYPE,
 		&COMMAND => &COMMAND_DROP_TABLE},
@@ -861,8 +873,6 @@ PgLogExecute(COMMAND_SELECT, 'select * from test');
 
 $strSql = 'drop table test';
 PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'public.test');
-# PgLogExecute(COMMAND_DROP_TABLE_TYPE, $strSql, 'public.test', false, false);
-# PgLogExecute(COMMAND_DROP_TABLE_TYPE, $strSql, 'public.test[]', false, true);
 
 PgSetUser('user2');
 PgLogExecute(COMMAND_CREATE_TABLE,
@@ -993,15 +1003,6 @@ PgSetUser('postgres');
 
 PgAuditLogSet(CONTEXT_GLOBAL, undef, (CLASS_DDL, CLASS_READ));
 
-# !!! Trying to build test to exclude function calls (did not work)
-# PgLogExecute(COMMAND_CREATE_ROLE, 'create role func_owner');
-# PgAuditLogSet(CONTEXT_ROLE, 'func_owner');
-# PgLogExecute(COMMAND_SET, 'set role func_owner');
-# PgLogExecute(COMMAND_CREATE_FUNCTION, 'CREATE FUNCTION func_test(a int)' .
-# 									  ' returns int as $$ begin return a + 1;' .
-# 									  ' end $$language plpgsql security definer');
-# PgLogExecute(COMMAND_GRANT, 'grant execute on function func_test(int) to user1');
-
 PgSetUser('user1');
 
 $strSql = 'CREATE  TABLE  public.account (id pg_catalog.int4   , name pg_catalog.text   COLLATE pg_catalog."default", password pg_catalog.text   COLLATE pg_catalog."default", description pg_catalog.text   COLLATE pg_catalog."default")  WITH (oids=OFF)  ';
@@ -1012,9 +1013,6 @@ PgLogExecute(COMMAND_INSERT,
 			 "insert into account (id, name, password, description)" .
 			 " values (1, 'user1', 'HASH1', 'blah, blah')");
 &log("AUDIT: <nothing logged>");
-
-# Test function without auditing (did not work)
-# PgLogExecute(COMMAND_SELECT, 'select func_test(1)');
 
 # Now tests for object logging
 &log("\nObject Audit:\n");
@@ -1224,7 +1222,7 @@ PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
 $strSubSql = 'CREATE  TABLE  public.test_block (id pg_catalog.int4   )  WITH (oids=OFF)  ';
 PgLogExecute(COMMAND_CREATE_TABLE, $strSubSql, 'public.test_block', false, false);
 
-PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'public.test_block', false, true);
+PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'public.test_block', false, false);
 
 # Try explain
 PgLogExecute(COMMAND_SELECT, 'explain select 1', undef, true, false);
@@ -1241,8 +1239,8 @@ PgLogExecute(COMMAND_SELECT, 'select id from test');
 PgLogExecute(COMMAND_SELECT, 'select name from test', \@oyTable);
 
 # Test alter and drop table statements
-PgLogExecute(COMMAND_ALTER_TABLE,
-			 'alter table test drop description', 'public.test');
+PgLogExecute(COMMAND_ALTER_TABLE_COLUMN,
+			 'alter table test drop description', 'public.test.description');
 @oyTable = ({&NAME => 'public.test', &TYPE => &TYPE_TABLE,
 			 &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select from test', \@oyTable);
@@ -1256,10 +1254,13 @@ PgLogExecute(COMMAND_ALTER_TABLE, $strSql, 'test.test2');
 $strSql = 'ALTER TABLE test.test2 ADD COLUMN description pg_catalog.text   COLLATE pg_catalog."default"';
 PgLogExecute(COMMAND_ALTER_TABLE, $strSql, 'test.test2');
 
-PgLogExecute(COMMAND_ALTER_TABLE, 'alter table test.test2 drop description',
-								  'test.test2');
-PgLogExecute(COMMAND_DROP_TABLE, 'drop table test.test2',
-								 'test.test2', true, true);
+PgLogExecute(COMMAND_ALTER_TABLE_COLUMN, 'alter table test.test2 drop description',
+								  'test.test2.description');
+
+$strSql = 'drop table test.test2';
+PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'test.test2', true, false);
+PgLogExecute(COMMAND_DROP_TABLE_CONSTRAINT, $strSql, 'test_pkey on test.test2', false, false);
+PgLogExecute(COMMAND_DROP_TABLE_INDEX, $strSql, 'test.test_pkey', false, true);
 
 $strSql = "CREATE  FUNCTION public.int_add(IN a pg_catalog.int4 , IN b pg_catalog.int4 ) RETURNS  pg_catalog.int4 LANGUAGE plpgsql  VOLATILE  CALLED ON NULL INPUT SECURITY INVOKER COST 100   AS ' begin return a + b; end '";
 PgLogExecute(COMMAND_CREATE_FUNCTION, $strSql, 'public.int_add(integer,integer)');

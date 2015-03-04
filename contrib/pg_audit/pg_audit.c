@@ -487,7 +487,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 {
 	ListCell *lr;
 	bool first = true;
-//	AuditEvent auditEvent;
+	bool found = false;
 
 	/* Do not log if this is an internal statement */
 	if (internalStatement)
@@ -502,6 +502,8 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		/* We only care about tables, and can ignore subqueries etc. */
 		if (rte->rtekind != RTE_RELATION)
 			continue;
+		
+		found = true;
 
 		/*
 		 * Filter out any system relations
@@ -512,7 +514,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		if (IsSystemNamespace(RelationGetNamespace(rel)))
 		{
 			relation_close(rel, NoLock);
-			return;
+			continue;
 		}
 
 		/*
@@ -520,20 +522,21 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		 * the node type, object type, and command tag by decoding
 		 * rte->requiredPerms and rte->relkind.
 		 */
-		auditEventStack->auditEvent.logStmtLevel = LOGSTMT_MOD;
-
 		if (rte->requiredPerms & ACL_INSERT)
 		{
+			auditEventStack->auditEvent.logStmtLevel = LOGSTMT_MOD;
 			auditEventStack->auditEvent.commandTag = T_InsertStmt;
 			auditEventStack->auditEvent.command = COMMAND_INSERT;
 		}
 		else if (rte->requiredPerms & ACL_UPDATE)
 		{
+			auditEventStack->auditEvent.logStmtLevel = LOGSTMT_MOD;
 			auditEventStack->auditEvent.commandTag = T_UpdateStmt;
 			auditEventStack->auditEvent.command = COMMAND_UPDATE;
 		}
 		else if (rte->requiredPerms & ACL_DELETE)
 		{
+			auditEventStack->auditEvent.logStmtLevel = LOGSTMT_MOD;
 			auditEventStack->auditEvent.commandTag = T_DeleteStmt;
 			auditEventStack->auditEvent.command = COMMAND_DELETE;
 		}
@@ -545,6 +548,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		}
 		else
 		{
+			auditEventStack->auditEvent.logStmtLevel = LOGSTMT_ALL;
 			auditEventStack->auditEvent.commandTag = T_Invalid;
 			auditEventStack->auditEvent.command = COMMAND_UNKNOWN;
 		}
@@ -554,7 +558,6 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		 * logging.
 		 */
 		auditEventStack->auditEvent.granted = false;
-//		auditEventStack->auditEvent.commandText = debug_query_string;
 
 		/* If this is the first rte then session log */
 		if (first)
@@ -673,6 +676,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		/* Only do relation level logging if a grant was found. */
 		if (auditEventStack->auditEvent.granted)
 		{
+			auditEventStack->auditEvent.logged = false;
 			log_audit_event(&auditEventStack->auditEvent);
 		}
 
@@ -680,17 +684,12 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 	}
 
 	/*
-	 * If the first flag was never set to false, then rangeTabls was empty. In
-	 * this case log a session select statement.
+	 * If no tables were found that means that RangeTbls was empty or all
+	 * relations were in the system schema.  In that case still log a
+	 * session record.
 	 */
-	if (first)
+	if (!found)
 	{
-		auditEventStack->auditEvent.logStmtLevel = LOGSTMT_ALL;
-		auditEventStack->auditEvent.commandTag = T_SelectStmt;
-		auditEventStack->auditEvent.command = COMMAND_SELECT;
-		auditEventStack->auditEvent.objectName = "";
-		auditEventStack->auditEvent.objectType = "";
-//		auditEventStack->auditEvent.commandText = debug_query_string;
 		auditEventStack->auditEvent.granted = false;
 		auditEventStack->auditEvent.logged = false;
 
@@ -700,9 +699,6 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 
 		log_audit_event(&auditEventStack->auditEvent);
 	}
-	
-	auditEventStack = auditEventStack->next;
-//	pfree(stackItem);
 }
 
 /*
@@ -896,22 +892,55 @@ static object_access_hook_type next_object_access_hook = NULL;
 static ExecutorStart_hook_type next_ExecutorStart_hook = NULL;
 
 /*
- * Hook ExecutorStart to get the query.
+ * Hook ExecutorStart to get the query text and basic command type for queries
+ * that do not contain a table so can't be idenitified accurately in
+ * ExecutorCheckPerms.
  */
 static void
 pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 {
 	AuditEventStackItem *stackItem = NULL;
 
-	if (!internalStatement/* && queryDesc->sourceText*/)
+	if (!internalStatement && queryDesc->operation != CMD_UTILITY/* && queryDesc->sourceText*/)
 	{
 		/* Allocate the audit event */
 		stackItem = palloc(sizeof(AuditEventStackItem));
 
+		/* Initialize command vars */
+		switch (queryDesc->operation)
+		{	
+			case CMD_SELECT:
+				stackItem->auditEvent.logStmtLevel = LOGSTMT_ALL;
+				stackItem->auditEvent.commandTag = T_SelectStmt;
+				stackItem->auditEvent.command = COMMAND_SELECT;
+				break;
+
+			case CMD_INSERT:
+				stackItem->auditEvent.logStmtLevel = LOGSTMT_MOD;
+				stackItem->auditEvent.commandTag = T_InsertStmt;
+				stackItem->auditEvent.command = COMMAND_INSERT;
+				break;
+
+			case CMD_UPDATE:
+				stackItem->auditEvent.logStmtLevel = LOGSTMT_MOD;
+				stackItem->auditEvent.commandTag = T_UpdateStmt;
+				stackItem->auditEvent.command = COMMAND_UPDATE;
+				break;
+
+			case CMD_DELETE:
+				stackItem->auditEvent.logStmtLevel = LOGSTMT_MOD;
+				stackItem->auditEvent.commandTag = T_DeleteStmt;
+				stackItem->auditEvent.command = COMMAND_DELETE;
+				break;
+				
+			default:
+				stackItem->auditEvent.logStmtLevel = LOGSTMT_ALL;
+				stackItem->auditEvent.commandTag = T_Invalid;
+				stackItem->auditEvent.command = COMMAND_UNKNOWN;
+				break;
+		}
+
 		/* Initialize the audit event. */
-		// stackItem->auditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
-		// stackItem->auditEvent.commandTag = nodeTag(parsetree);
-		// stackItem->auditEvent.command = CreateCommandTag(parsetree);
 		stackItem->auditEvent.objectName = "";
 		stackItem->auditEvent.objectType = "";
 		stackItem->auditEvent.commandText = queryDesc->sourceText;
@@ -922,19 +951,10 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 		if (auditEventStack != NULL)
 			stackItem->next = auditEventStack;
 		else
-		{
 			stackItem->next = NULL;
-
-			/* Reset internal statement in case of previous error */
-			internalStatement = false;
-		}
 	
 		/* Push new event on top of the stack */
 		auditEventStack = stackItem; 
-		
-		ereport(LOG,
-				(errmsg("STATEMENT: %s", queryDesc->sourceText),
-				 errhidestmt(true)));
 	}
 
 	/* Call the previous hook or standard function */
@@ -943,12 +963,12 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 	else
 		standard_ExecutorStart(queryDesc, eflags);
 
-	// /* Pop the audit event off the stack */
-	// if (stackItem)
-	// {
-	// 	auditEventStack = stackItem->next;
-	// 	pfree(stackItem);
-	// }
+	/* Pop the audit event off the stack */
+	if (stackItem)
+	{
+		auditEventStack = stackItem->next;
+		pfree(stackItem);
+	}
 }
 
 /*
@@ -988,10 +1008,6 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 {
 	AuditEventStackItem *stackItem;
 
-	ereport(LOG,
-			(errmsg("UTILITY: %s", debug_query_string),
-			 errhidestmt(true)));
-	
 	/* Allocate the audit event */
 	stackItem = palloc(sizeof(AuditEventStackItem));
 
@@ -1040,9 +1056,6 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 	if (auditLogBitmap != 0 && !stackItem->auditEvent.logged &&
 		!IsAbortedTransactionBlockState())
 	{
-		ereport(LOG,
-				(errmsg("UTILITY LOG: %s", debug_query_string),
-				 errhidestmt(true)));
 		log_audit_event(&stackItem->auditEvent);
 	}
 
@@ -1085,108 +1098,83 @@ pg_audit_func_ddl_command_end(PG_FUNCTION_ARGS)
 {
 	if (auditLogBitmap != 0)
 	{
-	EventTriggerData *trigdata;
-	int               ret, row;
-	TupleDesc		  spi_tupdesc;
-	const char		 *query_get_creation_commands;
+		EventTriggerData *trigdata;
+		int               ret, row;
+		TupleDesc		  spi_tupdesc;
+		const char		 *query_get_creation_commands;
 
-	internalStatement = true;
+		internalStatement = true;
 
-	MemoryContext tmpcontext;
-	MemoryContext oldcontext;
+		MemoryContext tmpcontext;
+		MemoryContext oldcontext;
 
-	if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
-		elog(ERROR, "not fired by event trigger manager");
-
-	/*
-	 * This query returns the objects affected by the DDL, and a JSON
-	 * representation of the parsed command. We use SPI to execute it,
-	 * and compose one AuditEvent per object in the results.
-	 */
-
-	/*
-	 * XXX 'identity' and 'schema' will be changed to 'object_identity'
-	 * and 'schema_name' in an upcoming change to the deparse branch,
-	 * for consistency with the existing 'pg_event_trigger_dropped_objects()'
-	 * function
-	 */
-	query_get_creation_commands =
-		"SELECT classid, objid, objsubid, UPPER(object_type), schema,"
-		" identity, command"
-		"  FROM pg_event_trigger_get_creation_commands()";
-
-	tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
-									   "pgaudit_func_ddl_command_end temporary context",
-									   ALLOCSET_DEFAULT_MINSIZE,
-									   ALLOCSET_DEFAULT_INITSIZE,
-									   ALLOCSET_DEFAULT_MAXSIZE);
-	oldcontext = MemoryContextSwitchTo(tmpcontext);
-
-	ret = SPI_connect();
-	if (ret < 0)
-		elog(ERROR, "pgaudit_func_ddl_command_end: SPI_connect returned %d", ret);
-
-	ret = SPI_execute(query_get_creation_commands, true, 0);
-	if (ret != SPI_OK_SELECT)
-		elog(ERROR, "pgaudit_func_ddl_command_end: SPI_execute returned %d", ret);
-
-	spi_tupdesc = SPI_tuptable->tupdesc;
-
-	trigdata = (EventTriggerData *) fcinfo->context;
-
-	for (row = 0; row < SPI_processed; row++)
-	{
-		HeapTuple  spi_tuple;
-		// Datum	   json;
-		// Datum	   command;
-		bool	   isnull;
-		// char	  *command_formatted;
-
-		spi_tuple = SPI_tuptable->vals[row];
-
-		/* Temporarily dump the raw JSON rendering for debugging */
-		// command_formatted = SPI_getvalue(spi_tuple, spi_tupdesc, 7);
-		// ereport(DEBUG1, (errmsg("%s", command_formatted),
-		// 				 errhidestmt(true)));
+		if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
+			elog(ERROR, "not fired by event trigger manager");
 
 		/*
-		 * pg_event_trigger_expand_command() takes the JSON
-		 * representation of a command and deparses it back into a
-		 * fully-qualified version of the command.
+		 * This query returns the objects affected by the DDL, and a JSON
+		 * representation of the parsed command. We use SPI to execute it,
+		 * and compose one AuditEvent per object in the results.
 		 */
 
-		// json = SPI_getbinval(spi_tuple, spi_tupdesc, 7, &isnull);
-		// command = DirectFunctionCall1(pg_event_trigger_expand_command, json);
+		/*
+		 * XXX 'identity' and 'schema' will be changed to 'object_identity'
+		 * and 'schema_name' in an upcoming change to the deparse branch,
+		 * for consistency with the existing 'pg_event_trigger_dropped_objects()'
+		 * function
+		 */
+		query_get_creation_commands =
+			"SELECT classid, objid, objsubid, UPPER(object_type), schema,"
+			" identity, command"
+			"  FROM pg_event_trigger_get_creation_commands()";
 
-		// auditEvent.logStmtLevel = LOGSTMT_ALL;
-		// auditEvent.commandTag = T_DoStmt;
-		// auditEvent.command = COMMAND_EXECUTE;
-		// auditEvent.objectType = OBJECT_TYPE_FUNCTION;
-		// auditEvent.commandText = debug_query_string;
-		// auditEvent.granted = false;
-		// auditEvent.logged = false;
+		tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
+										   "pgaudit_func_ddl_command_end temporary context",
+										   ALLOCSET_DEFAULT_MINSIZE,
+										   ALLOCSET_DEFAULT_INITSIZE,
+										   ALLOCSET_DEFAULT_MAXSIZE);
+		oldcontext = MemoryContextSwitchTo(tmpcontext);
 
-		auditEventStack->auditEvent.logStmtLevel = GetCommandLogLevel(trigdata->parsetree);
-		auditEventStack->auditEvent.commandTag = nodeTag(trigdata->parsetree);
-		auditEventStack->auditEvent.command = CreateCommandTag(trigdata->parsetree);
-		auditEventStack->auditEvent.objectName = SPI_getvalue(spi_tuple, spi_tupdesc, 6);
-		auditEventStack->auditEvent.objectType = SPI_getvalue(spi_tuple, spi_tupdesc, 4);
-		auditEventStack->auditEvent.commandText =
-			TextDatumGetCString(
-				DirectFunctionCall1(pg_event_trigger_expand_command,
-									SPI_getbinval(spi_tuple, spi_tupdesc,
-												  7, &isnull)));
-		auditEventStack->auditEvent.granted = false;
-		auditEventStack->auditEvent.logged = false;
+		ret = SPI_connect();
+		if (ret < 0)
+			elog(ERROR, "pgaudit_func_ddl_command_end: SPI_connect returned %d", ret);
 
-		log_audit_event(&auditEventStack->auditEvent);
-	}
+		ret = SPI_execute(query_get_creation_commands, true, 0);
+		if (ret != SPI_OK_SELECT)
+			elog(ERROR, "pgaudit_func_ddl_command_end: SPI_execute returned %d", ret);
 
-	SPI_finish();
-	MemoryContextSwitchTo(oldcontext);
-	MemoryContextDelete(tmpcontext);
+		spi_tupdesc = SPI_tuptable->tupdesc;
 
-	internalStatement = false;
+		trigdata = (EventTriggerData *) fcinfo->context;
+
+		for (row = 0; row < SPI_processed; row++)
+		{
+			HeapTuple  spi_tuple;
+			bool	   isnull;
+
+			spi_tuple = SPI_tuptable->vals[row];
+
+			auditEventStack->auditEvent.logStmtLevel = GetCommandLogLevel(trigdata->parsetree);
+			auditEventStack->auditEvent.commandTag = nodeTag(trigdata->parsetree);
+			auditEventStack->auditEvent.command = CreateCommandTag(trigdata->parsetree);
+			auditEventStack->auditEvent.objectName = SPI_getvalue(spi_tuple, spi_tupdesc, 6);
+			auditEventStack->auditEvent.objectType = SPI_getvalue(spi_tuple, spi_tupdesc, 4);
+			auditEventStack->auditEvent.commandText =
+				TextDatumGetCString(
+					DirectFunctionCall1(pg_event_trigger_expand_command,
+										SPI_getbinval(spi_tuple, spi_tupdesc,
+													  7, &isnull)));
+			auditEventStack->auditEvent.granted = false;
+			auditEventStack->auditEvent.logged = false;
+
+			log_audit_event(&auditEventStack->auditEvent);
+		}
+
+		SPI_finish();
+		MemoryContextSwitchTo(oldcontext);
+		MemoryContextDelete(tmpcontext);
+
+		internalStatement = false;
 	}
 
 	PG_RETURN_NULL();
@@ -1203,75 +1191,75 @@ pg_audit_func_sql_drop(PG_FUNCTION_ARGS)
 {
 	if (auditLogBitmap != 0)
 	{
-	EventTriggerData *trigdata;
-	TupleDesc		  spi_tupdesc;
-	int               ret, row;
-	const char		 *query_dropped_objects;
+		EventTriggerData *trigdata;
+		TupleDesc		  spi_tupdesc;
+		int               ret, row;
+		const char		 *query_dropped_objects;
 
-	internalStatement = true;
+		internalStatement = true;
 
-	MemoryContext tmpcontext;
-	MemoryContext oldcontext;
+		MemoryContext tmpcontext;
+		MemoryContext oldcontext;
 
-	/* Short circuit when session auditing is disabled */
-		PG_RETURN_NULL();
+		/* Make sure function is called by event trigger */
+		if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
+			elog(ERROR, "not fired by event trigger manager");
 
-	if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
-		elog(ERROR, "not fired by event trigger manager");
+		/*
+		 * This query returns a list of objects dropped by the command
+		 * (which no longer exist, and thus cannot be looked up). With
+		 * no support for deparsing the command, the best we can do is
+		 * to log the identity of the objects.
+		 */
 
-	/*
-	 * This query returns a list of objects dropped by the command
-	 * (which no longer exist, and thus cannot be looked up). With
-	 * no support for deparsing the command, the best we can do is
-	 * to log the identity of the objects.
-	 */
+		query_dropped_objects =
+			"SELECT classid, objid, objsubid, UPPER(object_type), schema_name, "
+			" object_name, object_identity"
+			"  FROM pg_event_trigger_dropped_objects()";
 
-	query_dropped_objects =
-		"SELECT classid, objid, objsubid, UPPER(object_type), schema_name, "
-		" object_name, object_identity"
-		"  FROM pg_event_trigger_dropped_objects()";
+		tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
+										   "pgaudit_func_sql_drop temporary context",
+										   ALLOCSET_DEFAULT_MINSIZE,
+										   ALLOCSET_DEFAULT_INITSIZE,
+										   ALLOCSET_DEFAULT_MAXSIZE);
+		oldcontext = MemoryContextSwitchTo(tmpcontext);
 
-	tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
-									   "pgaudit_func_sql_drop temporary context",
-									   ALLOCSET_DEFAULT_MINSIZE,
-									   ALLOCSET_DEFAULT_INITSIZE,
-									   ALLOCSET_DEFAULT_MAXSIZE);
-	oldcontext = MemoryContextSwitchTo(tmpcontext);
+		ret = SPI_connect();
+		if (ret < 0)
+			elog(ERROR, "pgaudit_func_sql_drop: SPI_connect returned %d", ret);
 
-	ret = SPI_connect();
-	if (ret < 0)
-		elog(ERROR, "pgaudit_func_sql_drop: SPI_connect returned %d", ret);
+		ret = SPI_execute(query_dropped_objects, true, 0);
+		if (ret != SPI_OK_SELECT)
+			elog(ERROR, "pgaudit_func_sql_drop: SPI_execute returned %d", ret);
 
-	ret = SPI_execute(query_dropped_objects, true, 0);
-	if (ret != SPI_OK_SELECT)
-		elog(ERROR, "pgaudit_func_sql_drop: SPI_execute returned %d", ret);
+		spi_tupdesc = SPI_tuptable->tupdesc;
 
-	spi_tupdesc = SPI_tuptable->tupdesc;
+		trigdata = (EventTriggerData *) fcinfo->context;
 
-	trigdata = (EventTriggerData *) fcinfo->context;
+		for (row = 0; row < SPI_processed; row++)
+		{
+			HeapTuple  spi_tuple;
+			char *schemaName;
 
-	for (row = 0; row < SPI_processed; row++)
-	{
-		HeapTuple  spi_tuple;
+			spi_tuple = SPI_tuptable->vals[row];
 
-		spi_tuple = SPI_tuptable->vals[row];
+			auditEventStack->auditEvent.objectType = SPI_getvalue(spi_tuple, spi_tupdesc, 4);
+			schemaName = SPI_getvalue(spi_tuple, spi_tupdesc, 5);
 
-//		e.type = nodeTag(trigdata->parsetree);
-		auditEventStack->auditEvent.objectName = SPI_getvalue(spi_tuple, spi_tupdesc, 7);
-		auditEventStack->auditEvent.objectType = SPI_getvalue(spi_tuple, spi_tupdesc, 4);
-		// e.command_tag = trigdata->tag;
-		// e.command_text = "";
-		auditEventStack->auditEvent.granted = false;
-		auditEventStack->auditEvent.logged = false;
+			if (!(pg_strcasecmp(auditEventStack->auditEvent.objectType, "TYPE") == 0 ||
+				  pg_strcasecmp(schemaName, "pg_toast") == 0))
+			{
+				auditEventStack->auditEvent.objectName = SPI_getvalue(spi_tuple, spi_tupdesc, 7);
 
-		log_audit_event(&auditEventStack->auditEvent);
-	}
+				log_audit_event(&auditEventStack->auditEvent);
+			}
+		}
 
-	SPI_finish();
-	MemoryContextSwitchTo(oldcontext);
-	MemoryContextDelete(tmpcontext);
+		SPI_finish();
+		MemoryContextSwitchTo(oldcontext);
+		MemoryContextDelete(tmpcontext);
 
-	internalStatement = false;
+		internalStatement = false;
 	}
 
 	PG_RETURN_NULL();
