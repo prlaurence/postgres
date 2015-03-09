@@ -81,6 +81,7 @@ static uint64 auditLogBitmap = 0;
 #define CLASS_DDL			"DDL"
 #define CLASS_FUNCTION		"FUNCTION"
 #define CLASS_MISC		    "MISC"
+#define CLASS_PARAMETER		"PARAMETER"
 #define CLASS_READ			"READ"
 #define CLASS_WRITE			"WRITE"
 
@@ -92,20 +93,23 @@ enum LogClass
 {
 	LOG_NONE = 0,
 
+	/* DDL: CREATE/DROP/ALTER */
+	LOG_DDL = (1 << 1),
+
+	/* Function execution */
+	LOG_FUNCTION = (1 << 2),
+
+	/* Function execution */
+	LOG_MISC = (1 << 3),
+
+	/* Function execution */
+	LOG_PARAMETER = (1 << 4),
+
 	/* SELECT */
-	LOG_READ = (1 << 0),
+	LOG_READ = (1 << 5),
 
 	/* INSERT, UPDATE, DELETE, TRUNCATE */
-	LOG_WRITE = (1 << 1),
-
-	/* DDL: CREATE/DROP/ALTER */
-	LOG_DDL = (1 << 2),
-
-	/* Function execution */
-	LOG_FUNCTION = (1 << 4),
-
-	/* Function execution */
-	LOG_MISC = (1 << 5),
+	LOG_WRITE = (1 << 6),
 
 	/* Absolutely everything */
 	LOG_ALL = ~(uint64)0
@@ -146,6 +150,7 @@ typedef struct
 	const char *objectType;
 	char *objectName;
 	const char *commandText;
+	ParamListInfo paramList;
 	bool granted;
 	bool logged;
 } AuditEvent;
@@ -269,7 +274,69 @@ log_audit_event(AuditEvent *auditEvent)
 					auditEvent->objectName ? auditEvent->objectName : "",
 					auditEvent->commandText),
 			 errhidestmt(true)));
-			 
+
+	/* If parameter logging is turned on and there are parameters to log */
+	if (auditLogBitmap & LOG_PARAMETER && auditEvent->paramList != NULL &&
+		auditEvent->paramList->numParams > 0 &&
+		!IsAbortedTransactionBlockState())
+	{
+		ParamListInfo paramList = auditEvent->paramList;
+		StringInfoData paramStr;
+		MemoryContext oldContext;
+		int paramIdx;
+
+		/* Make sure any trash is generated in MessageContext */
+		oldContext = MemoryContextSwitchTo(MessageContext);
+
+		initStringInfo(&paramStr);
+
+		for (paramIdx = 0; paramIdx < paramList->numParams; paramIdx++)
+		{
+			ParamExternData *prm = &paramList->params[paramIdx];
+			Oid			typoutput;
+			bool		typisvarlena;
+			char	   *pstring;
+			char	   *p;
+
+			appendStringInfo(&paramStr, "%s$%d = ",
+							 paramIdx > 0 ? ", " : "",
+							 paramIdx + 1);
+
+			if (prm->isnull || !OidIsValid(prm->ptype))
+			{
+				appendStringInfoString(&paramStr, "NULL");
+				continue;
+			}
+
+			getTypeOutputInfo(prm->ptype, &typoutput, &typisvarlena);
+
+			pstring = OidOutputFunctionCall(typoutput, prm->value);
+
+			appendStringInfoCharMacro(&paramStr, '\'');
+			for (p = pstring; *p; p++)
+			{
+				if (*p == '\'') /* double single quotes */
+					appendStringInfoCharMacro(&paramStr, *p);
+				appendStringInfoCharMacro(&paramStr, *p);
+			}
+			appendStringInfoCharMacro(&paramStr, '\'');
+
+			pfree(pstring);
+		}
+
+		ereport(LOG,
+				(errmsg("AUDIT: %s,%s,%s,%s,%s,%s",
+						auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
+						classname, CLASS_PARAMETER, auditEvent->objectType,
+						auditEvent->objectName ? auditEvent->objectName : "",
+						paramStr.data),
+				 errhidestmt(true)));
+
+		pfree(paramStr.data);
+
+		MemoryContextSwitchTo(oldContext);
+	}
+
 	auditEvent->logged = true;
 }
 
@@ -817,6 +884,7 @@ log_function_execute(Oid objectId)
 	auditEvent.command = COMMAND_EXECUTE;
 	auditEvent.objectType = OBJECT_TYPE_FUNCTION;
 	auditEvent.commandText = debug_query_string;
+	auditEvent.paramList = NULL;
 	auditEvent.granted = false;
 	auditEvent.logged = false;
 
@@ -901,10 +969,10 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 {
 	AuditEventStackItem *stackItem = NULL;
 
-	if (!internalStatement && queryDesc->operation != CMD_UTILITY/* && queryDesc->sourceText*/)
+	if (!internalStatement && !IsAbortedTransactionBlockState())
 	{
 		/* Allocate the audit event */
-		stackItem = palloc(sizeof(AuditEventStackItem));
+		stackItem = palloc0(sizeof(AuditEventStackItem));
 
 		/* Initialize command vars */
 		switch (queryDesc->operation)
@@ -944,8 +1012,21 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 		stackItem->auditEvent.objectName = "";
 		stackItem->auditEvent.objectType = "";
 		stackItem->auditEvent.commandText = queryDesc->sourceText;
+
+		if (auditEventStack == NULL)
+			stackItem->auditEvent.paramList = queryDesc->params;
+		else
+			stackItem->auditEvent.paramList = NULL;
+
 		stackItem->auditEvent.granted = false;
 		stackItem->auditEvent.logged = false;
+
+		if (queryDesc->params)
+		{
+			ereport(LOG,
+					(errmsg("QUERY PARAMS: %d", queryDesc->params->numParams),
+					 errhidestmt(true)));
+		}
 
 		/* If there already an is an event on the stack, push it down */
 		if (auditEventStack != NULL)
@@ -1006,41 +1087,68 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 							DestReceiver *dest,
 							char *completionTag)
 {
-	AuditEventStackItem *stackItem;
+	AuditEventStackItem *stackItem = NULL;
 
 	/* Allocate the audit event */
-	stackItem = palloc(sizeof(AuditEventStackItem));
-
-	/* Initialize the audit event. */
-	stackItem->auditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
-	stackItem->auditEvent.commandTag = nodeTag(parsetree);
-	stackItem->auditEvent.command = CreateCommandTag(parsetree);
-	stackItem->auditEvent.objectName = "";
-	stackItem->auditEvent.objectType = "";
-	stackItem->auditEvent.commandText = debug_query_string;
-	stackItem->auditEvent.granted = false;
-	stackItem->auditEvent.logged = false;
-
-	/* If there already an is an event on the stack, push it down */
-	if (auditEventStack != NULL)
-		stackItem->next = auditEventStack;
-	else
+	if (!IsAbortedTransactionBlockState())
 	{
-		stackItem->next = NULL;
+		stackItem = palloc0(sizeof(AuditEventStackItem));
 
-		/* Reset internal statement in case of previous error */
-		internalStatement = false;
-	}
+		/* Process top level utility statement */
+		if (context == PROCESS_UTILITY_TOPLEVEL)
+		{
+			/*
+			 * If this statement is top-level and the stack is not empty, then
+			 * an error must have occurred so clear the stack
+			 */
+			if (auditEventStack != NULL)
+			{
+				ereport(DEBUG1, (errmsg("STACK RESET"), errhidestmt(true)));
+
+				auditEventStack = NULL;
+			}
+
+			/* Reset internal statement in case of previous error */
+			internalStatement = false;
+
+			/* Set params */
+			stackItem->auditEvent.paramList = params;
+			
+			if (params != NULL)
+			{
+				ereport(DEBUG1, (errmsg("UTILITY PARAM"), errhidestmt(true)));
+			}
+		}
+
+		/* Initialize the audit event. */
+		stackItem->auditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
+		stackItem->auditEvent.commandTag = nodeTag(parsetree);
+		stackItem->auditEvent.command = CreateCommandTag(parsetree);
+		stackItem->auditEvent.objectName = "";
+		stackItem->auditEvent.objectType = "";
+		stackItem->auditEvent.commandText = queryString;
+
+		/* If there already an is an event on the stack, push it down */
+		if (auditEventStack != NULL)
+			stackItem->next = auditEventStack;
+		else
+		{
+			stackItem->next = NULL;
+
+			/* Reset internal statement in case of previous error */
+			internalStatement = false;
+		}
 	
-	/* Push new event on top of the stack */
-	auditEventStack = stackItem; 
+		/* Push new event on top of the stack */
+		auditEventStack = stackItem; 
 
-	/* If this is a DO block always log it */
-	if (auditLogBitmap != 0 &&
-		stackItem->auditEvent.commandTag == T_DoStmt &&
-		!IsAbortedTransactionBlockState())
-	{
-		log_audit_event(&stackItem->auditEvent);
+		/* If this is a DO block always log it */
+		if (auditLogBitmap != 0 &&
+			stackItem->auditEvent.commandTag == T_DoStmt &&
+			!IsAbortedTransactionBlockState())
+		{
+			log_audit_event(&stackItem->auditEvent);
+		}
 	}
 
 	/* Call the standard process utility chain. */
@@ -1051,17 +1159,22 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 		standard_ProcessUtility(parsetree, queryString, context,
 								params, dest, completionTag);
 
-	/* Log the utility command if logging is on, the command has not already
-	 * been logged by another hook, and the transaction is not aborted */
-	if (auditLogBitmap != 0 && !stackItem->auditEvent.logged &&
-		!IsAbortedTransactionBlockState())
+	/* Process the audit event if there is one */
+	if (stackItem != NULL)
 	{
-		log_audit_event(&stackItem->auditEvent);
-	}
+		/* Log the utility command if logging is on, the command has not already
+		 * been logged by another hook, and the transaction is not aborted */
+		if (auditLogBitmap != 0 && !stackItem->auditEvent.logged &&
+			!IsAbortedTransactionBlockState())
+		{
+			ereport(DEBUG1, (errmsg("UTILITY LOG"), errhidestmt(true)));
+			log_audit_event(&stackItem->auditEvent);
+		}
 
-	/* Pop the audit event off the stack */
-	auditEventStack = stackItem->next;
-	pfree(stackItem);
+		/* Pop the audit event off the stack */
+		auditEventStack = stackItem->next;
+		pfree(stackItem);
+	}
 }
 
 /*
@@ -1327,6 +1440,8 @@ check_pgaudit_log(char **newval, void **extra, GucSource source)
 			class = LOG_FUNCTION;
 		else if (pg_strcasecmp(token, CLASS_MISC) == 0)
 			class = LOG_MISC;
+		else if (pg_strcasecmp(token, CLASS_PARAMETER) == 0)
+			class = LOG_PARAMETER;
 		else if (pg_strcasecmp(token, CLASS_READ) == 0)
 			class = LOG_READ;
 		else if (pg_strcasecmp(token, CLASS_WRITE) == 0)
@@ -1391,7 +1506,7 @@ _PG_init(void)
 							   &auditRole,
 							   "",
 							   PGC_SUSET,
-							   GUC_LIST_INPUT | GUC_NOT_IN_SAMPLE,
+							   GUC_NOT_IN_SAMPLE,
 							   NULL, NULL, NULL);
 
 	/*

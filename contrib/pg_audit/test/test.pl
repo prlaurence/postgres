@@ -39,6 +39,7 @@ use constant
 	CLASS_DDL		=> 'DDL',
 	CLASS_FUNCTION	=> 'FUNCTION',
 	CLASS_MISC		=> 'MISC',
+	CLASS_PARAMETER => 'PARAMETER',
 	CLASS_READ		=> 'READ',
 	CLASS_WRITE		=> 'WRITE',
 
@@ -96,6 +97,9 @@ use constant
 	COMMAND_FETCH					=> 'FETCH',
 	COMMAND_GRANT					=> 'GRANT',
 	COMMAND_INSERT					=> 'INSERT',
+	COMMAND_PARAMETER				=> 'PARAMETER',
+	COMMAND_PARAMETER_READ			=> 'PARAMETER_READ',
+	COMMAND_PARAMETER_WRITE			=> 'PARAMETER_WRITE',
 	COMMAND_PREPARE					=> 'PREPARE',
 	COMMAND_PREPARE_READ			=> 'PREPARE READ',
 	COMMAND_PREPARE_WRITE			=> 'PREPARE WRITE',
@@ -231,6 +235,10 @@ my %oCommandHash =
 	&COMMAND_EXPLAIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_FETCH => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_GRANT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
+	&COMMAND_PARAMETER_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
+		&COMMAND => &COMMAND_PARAMETER},
+	&COMMAND_PARAMETER_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
+		&COMMAND => &COMMAND_PARAMETER},
 	&COMMAND_PREPARE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_PREPARE},
 	&COMMAND_PREPARE_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
@@ -721,8 +729,7 @@ sub PgStart
 				   " -c shared_preload_libraries='pg_audit'" .
 				   " -c log_min_messages=debug1" .
 				   " -c log_line_prefix='prefix '" .
-				   # " -c log_destination='stderr,csvlog'" .
-				   # " -c logging_collector=on" .
+				   " -c log_statement=all" .
 				   (defined($strCurrentAuditLog) ?
 					   " -c pg_audit.log='${strCurrentAuditLog}'" : '') .
 				   " -c pg_audit.role='${strAuditRole}'" .
@@ -843,9 +850,9 @@ sub PgAuditGrantReset
 ################################################################################
 # Main
 ################################################################################
-my @oyTable;    # Store table info for select, insert, update, delete
-my $strSql;     # Hold Sql commands
-my $strSubSql;  # Hold Sql subcommands
+my @oyTable;       # Store table info for select, insert, update, delete
+my $strSql;        # Hold Sql commands
+my $strParameter;  # Hold Sql parameters
 
 # Drop the old cluster, build the code, and create a new cluster
 PgDrop();
@@ -1121,7 +1128,7 @@ PgLogExecute(COMMAND_PREPARE_READ,
 			 'PREPARE pgclassstmt (oid) as select *' .
 			 ' from pg_class where oid = $1');
 PgLogExecute(COMMAND_EXECUTE_READ,
-			 'EXECUTE pgclassstmt (1)');
+			 'EXECUTE pgclassstmt (1)', undef, true, false);
 PgLogExecute(COMMAND_DEALLOCATE,
 			 'DEALLOCATE pgclassstmt');
 
@@ -1144,6 +1151,9 @@ PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'test.test_insert');
 $strSql = 'PREPARE pgclassstmt (oid) as insert into test.test_insert (id) values ($1)';
 PgLogExecute(COMMAND_PREPARE_WRITE, $strSql);
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+
+# $strParameter = "\$1 = '1'";
+# PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false);
 
 $strSql = 'EXECUTE pgclassstmt (1)';
 PgLogExecute(COMMAND_EXECUTE_WRITE, $strSql, undef, true, true);
@@ -1206,9 +1216,38 @@ $strSql = 'select id from test';
 PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
 
 $strSql = 'insert into test (id) values (result.id + 100)';
+# $strParameter = "\$1 = '101'";
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+#PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false);
+
+# $strParameter = "\$1 = '102'";
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
-PgLogExecute(COMMAND_INSERT, $strSql, undef, false, true);
+#PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false);
+
+# $strParameter = "\$1 = '103'";
+PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+#PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, true);
+
+# Test EXECUTE with bind
+$strSql = "select * from test where id = ?";
+my $hStatement = $hDb->prepare($strSql);
+
+$strSql = "select * from test where id = \$1";
+$hStatement->bind_param(1, 101);
+$hStatement->execute();
+
+$strParameter = "\$1 = '101'";
+PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
+PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
+
+$hStatement->bind_param(1, 103);
+$hStatement->execute();
+
+$strParameter = "\$1 = '103'";
+PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
+PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
+
+$hStatement->finish();
 
 # Now try some DDL in a do block
 $strSql = 'do $$ ' .
@@ -1219,9 +1258,10 @@ $strSql = 'do $$ ' .
 
 PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
 
-$strSubSql = 'CREATE  TABLE  public.test_block (id pg_catalog.int4   )  WITH (oids=OFF)  ';
-PgLogExecute(COMMAND_CREATE_TABLE, $strSubSql, 'public.test_block', false, false);
+$strSql = 'CREATE  TABLE  public.test_block (id pg_catalog.int4   )  WITH (oids=OFF)  ';
+PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test_block', false, false);
 
+$strSql = 'drop table test_block';
 PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'public.test_block', false, false);
 
 # Try explain
