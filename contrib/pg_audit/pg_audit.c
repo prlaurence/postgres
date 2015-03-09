@@ -952,6 +952,42 @@ log_object_access(ObjectAccessType access,
 }
 
 /*
+ * Stack functions
+ *
+ * Audit events can go down to multiple levels so a stack is maintained to keep
+ * track of them.
+ */
+static void
+stack_push(AuditEventStackItem *stackItem)
+{
+	/* If item already on stack then push it down */
+	if (auditEventStack != NULL)
+		stackItem->next = auditEventStack;
+	/* Else this item will be the top */
+	else
+		stackItem->next = NULL;
+	
+	/* Push item on the stack */
+	auditEventStack = stackItem;
+}
+
+static void
+stack_pop(AuditEventStackItem *stackItem)
+{
+	/* Error if the stack is already empty */
+	if (auditEventStack == NULL)
+		elog(ERROR, "pg_audit stack is already empty");
+	
+	/* Error if an unexpected item is at the top of the stack */
+	if (stackItem != auditEventStack)
+		elog(ERROR, "pg_audit pop is not the top of the stack");
+	
+	/* Pop item off the stack */
+	auditEventStack = stackItem->next;
+	pfree(stackItem);
+}
+
+/*
  * Hook functions
  */
 static ExecutorCheckPerms_hook_type next_ExecutorCheckPerms_hook = NULL;
@@ -1015,11 +1051,6 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 
 		if (auditEventStack == NULL)
 			stackItem->auditEvent.paramList = queryDesc->params;
-		else
-			stackItem->auditEvent.paramList = NULL;
-
-		stackItem->auditEvent.granted = false;
-		stackItem->auditEvent.logged = false;
 
 		if (queryDesc->params)
 		{
@@ -1028,14 +1059,8 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 					 errhidestmt(true)));
 		}
 
-		/* If there already an is an event on the stack, push it down */
-		if (auditEventStack != NULL)
-			stackItem->next = auditEventStack;
-		else
-			stackItem->next = NULL;
-	
 		/* Push new event on top of the stack */
-		auditEventStack = stackItem; 
+		stack_push(stackItem);
 	}
 
 	/* Call the previous hook or standard function */
@@ -1045,11 +1070,8 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 		standard_ExecutorStart(queryDesc, eflags);
 
 	/* Pop the audit event off the stack */
-	if (stackItem)
-	{
-		auditEventStack = stackItem->next;
-		pfree(stackItem);
-	}
+	if (stackItem != NULL)
+		stack_pop(stackItem);
 }
 
 /*
@@ -1128,19 +1150,8 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 		stackItem->auditEvent.objectType = "";
 		stackItem->auditEvent.commandText = queryString;
 
-		/* If there already an is an event on the stack, push it down */
-		if (auditEventStack != NULL)
-			stackItem->next = auditEventStack;
-		else
-		{
-			stackItem->next = NULL;
-
-			/* Reset internal statement in case of previous error */
-			internalStatement = false;
-		}
-	
 		/* Push new event on top of the stack */
-		auditEventStack = stackItem; 
+		stack_push(stackItem);
 
 		/* If this is a DO block always log it */
 		if (auditLogBitmap != 0 &&
@@ -1171,9 +1182,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 			log_audit_event(&stackItem->auditEvent);
 		}
 
-		/* Pop the audit event off the stack */
-		auditEventStack = stackItem->next;
-		pfree(stackItem);
+		stack_pop(stackItem);
 	}
 }
 
