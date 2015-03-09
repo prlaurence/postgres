@@ -641,6 +641,8 @@ sub PgLogWait
 
 	# Strip the AUDIT and timestamp from the actual log
 	$strLogActual =~ s/prefix LOG:  AUDIT\: //g;
+	$strLogActual =~ s/SESSION,[0-9]+,[0-9]+,/SESSION,/g;
+	$strLogActual =~ s/OBJECT,[0-9]+,[0-9]+,/OBJECT,/g;
 
 	# Save the logs
 	SaveString("${strTestPath}/audit.actual", $strLogActual);

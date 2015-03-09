@@ -144,6 +144,9 @@ enum LogClass
  */
 typedef struct
 {
+	uint64 statementId;
+	uint64 substatementId;
+
 	LogStmtLevel logStmtLevel;
 	NodeTag commandTag;
 	const char *command;
@@ -151,6 +154,7 @@ typedef struct
 	char *objectName;
 	const char *commandText;
 	ParamListInfo paramList;
+
 	bool granted;
 	bool logged;
 } AuditEvent;
@@ -162,6 +166,7 @@ typedef struct AuditEventStackItem
 {
 	struct AuditEventStackItem *next;
 	AuditEvent auditEvent;
+	uint64 substatementTotal;
 } AuditEventStackItem;
 
 AuditEventStackItem *auditEventStack = NULL;
@@ -169,7 +174,8 @@ AuditEventStackItem *auditEventStack = NULL;
 /*
  * Track when an internal statement is running so it is not logged
  */
-bool internalStatement = false;
+static bool internalStatement = false;
+static uint64 statementTotal = 0;
 
 /*
  * Takes an AuditEvent and returns true or false depending on whether the event
@@ -268,12 +274,13 @@ log_audit_event(AuditEvent *auditEvent)
 
 	/* Log via ereport(). */
 	ereport(LOG,
-			(errmsg("AUDIT: %s,%s,%s,%s,%s,%s",
-					auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
-					classname, auditEvent->command, auditEvent->objectType,
-					auditEvent->objectName ? auditEvent->objectName : "",
-					auditEvent->commandText),
-			 errhidestmt(true)));
+		(errmsg("AUDIT: %s,%lld,%lld,%s,%s,%s,%s,%s",
+			auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
+			auditEvent->statementId, auditEvent->substatementId,
+			classname, auditEvent->command, auditEvent->objectType,
+			auditEvent->objectName ? auditEvent->objectName : "",
+			auditEvent->commandText),
+		 errhidestmt(true)));
 
 	/* If parameter logging is turned on and there are parameters to log */
 	if (auditLogBitmap & LOG_PARAMETER && auditEvent->paramList != NULL &&
@@ -325,12 +332,13 @@ log_audit_event(AuditEvent *auditEvent)
 		}
 
 		ereport(LOG,
-				(errmsg("AUDIT: %s,%s,%s,%s,%s,%s",
-						auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
-						classname, CLASS_PARAMETER, auditEvent->objectType,
-						auditEvent->objectName ? auditEvent->objectName : "",
-						paramStr.data),
-				 errhidestmt(true)));
+			(errmsg("AUDIT: %s,%lld,%lld,%s,%s,%s,%s,%s",
+				auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
+				auditEvent->statementId, auditEvent->substatementId,
+				classname, CLASS_PARAMETER, auditEvent->objectType,
+				auditEvent->objectName ? auditEvent->objectName : "",
+				paramStr.data),
+			 errhidestmt(true)));
 
 		pfree(paramStr.data);
 
@@ -960,12 +968,28 @@ log_object_access(ObjectAccessType access,
 static void
 stack_push(AuditEventStackItem *stackItem)
 {
+	
 	/* If item already on stack then push it down */
 	if (auditEventStack != NULL)
+	{
+		stackItem->auditEvent.statementId =
+				auditEventStack->auditEvent.statementId;
+		stackItem->auditEvent.substatementId =
+			++auditEventStack->substatementTotal;
+		stackItem->substatementTotal =
+			auditEventStack->substatementTotal;
+
 		stackItem->next = auditEventStack;
+	}
 	/* Else this item will be the top */
 	else
+	{
+		stackItem->auditEvent.statementId = ++statementTotal;
+		stackItem->auditEvent.substatementId = 1;
+		stackItem->substatementTotal = 1;
+
 		stackItem->next = NULL;
+	}
 	
 	/* Push item on the stack */
 	auditEventStack = stackItem;
@@ -1259,11 +1283,13 @@ pg_audit_func_ddl_command_end(PG_FUNCTION_ARGS)
 
 		ret = SPI_connect();
 		if (ret < 0)
-			elog(ERROR, "pgaudit_func_ddl_command_end: SPI_connect returned %d", ret);
+			elog(ERROR, "pgaudit_func_ddl_command_end: SPI_connect returned %d",
+		                ret);
 
 		ret = SPI_execute(query_get_creation_commands, true, 0);
 		if (ret != SPI_OK_SELECT)
-			elog(ERROR, "pgaudit_func_ddl_command_end: SPI_execute returned %d", ret);
+			elog(ERROR, "pgaudit_func_ddl_command_end: SPI_execute returned %d",
+		                ret);
 
 		spi_tupdesc = SPI_tuptable->tupdesc;
 
@@ -1276,11 +1302,16 @@ pg_audit_func_ddl_command_end(PG_FUNCTION_ARGS)
 
 			spi_tuple = SPI_tuptable->vals[row];
 
-			auditEventStack->auditEvent.logStmtLevel = GetCommandLogLevel(trigdata->parsetree);
-			auditEventStack->auditEvent.commandTag = nodeTag(trigdata->parsetree);
-			auditEventStack->auditEvent.command = CreateCommandTag(trigdata->parsetree);
-			auditEventStack->auditEvent.objectName = SPI_getvalue(spi_tuple, spi_tupdesc, 6);
-			auditEventStack->auditEvent.objectType = SPI_getvalue(spi_tuple, spi_tupdesc, 4);
+			auditEventStack->auditEvent.logStmtLevel =
+				GetCommandLogLevel(trigdata->parsetree);
+			auditEventStack->auditEvent.commandTag =
+				nodeTag(trigdata->parsetree);
+			auditEventStack->auditEvent.command =
+				CreateCommandTag(trigdata->parsetree);
+			auditEventStack->auditEvent.objectName =
+				SPI_getvalue(spi_tuple, spi_tupdesc, 6);
+			auditEventStack->auditEvent.objectType =
+				SPI_getvalue(spi_tuple, spi_tupdesc, 4);
 			auditEventStack->auditEvent.commandText =
 				TextDatumGetCString(
 					DirectFunctionCall1(pg_event_trigger_expand_command,
