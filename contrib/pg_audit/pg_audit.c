@@ -165,8 +165,14 @@ typedef struct
 typedef struct AuditEventStackItem
 {
 	struct AuditEventStackItem *next;
+
 	AuditEvent auditEvent;
+	int64 substatementUniqueId;
 	int64 substatementTotal;
+
+	MemoryContext contextAudit;
+	MemoryContext contextOld;
+	MemoryContextCallback contextCallback;
 } AuditEventStackItem;
 
 AuditEventStackItem *auditEventStack = NULL;
@@ -176,6 +182,7 @@ AuditEventStackItem *auditEventStack = NULL;
  */
 static bool internalStatement = false;
 static uint64 statementTotal = 0;
+static uint64 substatementUniqueTotal = 0;
 
 /*
  * Takes an AuditEvent and returns true or false depending on whether the event
@@ -966,8 +973,49 @@ log_object_access(ObjectAccessType access,
  * track of them.
  */
 static void
-stack_push(AuditEventStackItem *stackItem)
+stack_free(void *stackFree)
 {
+	AuditEventStackItem *stackItem = auditEventStack;
+
+	if (stackItem == (AuditEventStackItem *)stackFree)
+	{
+		auditEventStack = NULL;
+		return;
+	}
+
+	while (stackItem != NULL)
+	{
+		if (stackItem->next == (AuditEventStackItem *)stackFree)
+		{
+			stackItem->next = NULL;
+			return;
+		}
+		
+		stackItem = stackItem->next;
+	}
+}
+
+static AuditEventStackItem *
+stack_push()
+{
+	MemoryContext contextAudit;
+	MemoryContext contextOld;
+	AuditEventStackItem *stackItem;
+
+	/* Create a new memory context */
+	contextAudit = AllocSetContextCreate(CurrentMemoryContext,
+										 "pg_audit stack context",
+										 ALLOCSET_DEFAULT_MINSIZE,
+										 ALLOCSET_DEFAULT_INITSIZE,
+										 ALLOCSET_DEFAULT_MAXSIZE);
+	contextOld = MemoryContextSwitchTo(contextAudit);
+
+	/* Allocate the stack item */
+	stackItem = palloc0(sizeof(AuditEventStackItem));
+
+	/* Store memory contexts */
+	stackItem->contextAudit = contextAudit;
+	stackItem->contextOld = contextOld;
 	
 	/* If item already on stack then push it down */
 	if (auditEventStack != NULL)
@@ -990,25 +1038,41 @@ stack_push(AuditEventStackItem *stackItem)
 
 		stackItem->next = NULL;
 	}
-	
+
+	/* Generate a completely unique substatementId to help track this item */
+	stackItem->substatementUniqueId = ++substatementUniqueTotal;
+
+	/* 
+	 * Setup a callback in case an error happens.  stack_free() will truncate
+	 * the stack at this item.
+	 */
+	stackItem->contextCallback.func = stack_free;
+	stackItem->contextCallback.arg = (void *)stackItem;
+	MemoryContextRegisterResetCallback(contextAudit, &stackItem->contextCallback);
+
 	/* Push item on the stack */
 	auditEventStack = stackItem;
+
+	/* Return the stack item */
+	return stackItem;
 }
 
 static void
-stack_pop(AuditEventStackItem *stackItem)
+stack_pop()
 {
+	AuditEventStackItem *stackItem;
+
 	/* Error if the stack is already empty */
 	if (auditEventStack == NULL)
 		elog(ERROR, "pg_audit stack is already empty");
 	
-	/* Error if an unexpected item is at the top of the stack */
-	if (stackItem != auditEventStack)
-		elog(ERROR, "pg_audit pop is not the top of the stack");
-	
 	/* Pop item off the stack */
+	stackItem = auditEventStack;
 	auditEventStack = stackItem->next;
-	pfree(stackItem);
+	
+	/* Switch the old memory context and delete the audit context */
+	MemoryContextSwitchTo(stackItem->contextOld);
+	MemoryContextDelete(stackItem->contextAudit);
 }
 
 /*
@@ -1018,6 +1082,7 @@ static ExecutorCheckPerms_hook_type next_ExecutorCheckPerms_hook = NULL;
 static ProcessUtility_hook_type next_ProcessUtility_hook = NULL;
 static object_access_hook_type next_object_access_hook = NULL;
 static ExecutorStart_hook_type next_ExecutorStart_hook = NULL;
+static ExecutorEnd_hook_type next_ExecutorEnd_hook = NULL;
 
 /*
  * Hook ExecutorStart to get the query text and basic command type for queries
@@ -1029,10 +1094,11 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 {
 	AuditEventStackItem *stackItem = NULL;
 
-	if (!internalStatement && !IsAbortedTransactionBlockState())
+	if (!internalStatement)
 	{
 		/* Allocate the audit event */
-		stackItem = palloc0(sizeof(AuditEventStackItem));
+		stackItem = stack_push();
+		ereport(DEBUG1, (errmsg("EXECUTOR STACK PUSH %s", queryDesc->sourceText), errhidestmt(true)));
 
 		/* Initialize command vars */
 		switch (queryDesc->operation)
@@ -1082,9 +1148,6 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 					(errmsg("QUERY PARAMS: %d", queryDesc->params->numParams),
 					 errhidestmt(true)));
 		}
-
-		/* Push new event on top of the stack */
-		stack_push(stackItem);
 	}
 
 	/* Call the previous hook or standard function */
@@ -1092,10 +1155,6 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 		next_ExecutorStart_hook(queryDesc, eflags);
 	else
 		standard_ExecutorStart(queryDesc, eflags);
-
-	/* Pop the audit event off the stack */
-	if (stackItem != NULL)
-		stack_pop(stackItem);
 }
 
 /*
@@ -1123,6 +1182,20 @@ pgaudit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
 }
 
 /*
+ * Hook ExecutorEnd to pop statement audit event off the stack.
+ */
+static void
+pgaudit_ExecutorEnd_hook(QueryDesc *queryDesc)
+{
+	/* Pop the audit event off the stack */
+	if (!internalStatement)
+	{
+		ereport(DEBUG1, (errmsg("EXECUTOR STACK POP"), errhidestmt(true)));
+		stack_pop();
+	}
+}
+
+/*
  * Hook ProcessUtility to do session auditing for DDL and utility commands.
  */
 static void
@@ -1138,11 +1211,12 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 	/* Allocate the audit event */
 	if (!IsAbortedTransactionBlockState())
 	{
-		stackItem = palloc0(sizeof(AuditEventStackItem));
-
 		/* Process top level utility statement */
 		if (context == PROCESS_UTILITY_TOPLEVEL)
 		{
+			if (auditEventStack != NULL)
+				elog(ERROR, "pg_audit stack is not empty");
+
 			/*
 			 * If this statement is top-level and the stack is not empty, then
 			 * an error must have occurred so clear the stack
@@ -1158,6 +1232,8 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 			internalStatement = false;
 
 			/* Set params */
+			stackItem = stack_push();
+			ereport(DEBUG1, (errmsg("UTILITY TOP STACK PUSH"), errhidestmt(true)));
 			stackItem->auditEvent.paramList = params;
 			
 			if (params != NULL)
@@ -1165,8 +1241,12 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 				ereport(DEBUG1, (errmsg("UTILITY PARAM"), errhidestmt(true)));
 			}
 		}
+		else
+		{
+			stackItem = stack_push();
+			ereport(DEBUG1, (errmsg("UTILITY STACK PUSH"), errhidestmt(true)));
+		}
 
-		/* Initialize the audit event. */
 		stackItem->auditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
 		stackItem->auditEvent.commandTag = nodeTag(parsetree);
 		stackItem->auditEvent.command = CreateCommandTag(parsetree);
@@ -1174,10 +1254,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 		stackItem->auditEvent.objectType = "";
 		stackItem->auditEvent.commandText = queryString;
 
-		/* Push new event on top of the stack */
-		stack_push(stackItem);
-
-		/* If this is a DO block always log it */
+		/* If this is a DO block log it before calling the next ProcessUtility hook */
 		if (auditLogBitmap != 0 &&
 			stackItem->auditEvent.commandTag == T_DoStmt &&
 			!IsAbortedTransactionBlockState())
@@ -1206,7 +1283,19 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 			log_audit_event(&stackItem->auditEvent);
 		}
 
-		stack_pop(stackItem);
+		if (context == PROCESS_UTILITY_TOPLEVEL)
+		{
+			while (auditEventStack != NULL)
+			{
+				stack_pop();
+				ereport(DEBUG1, (errmsg("UTILITY TOP STACK POP"), errhidestmt(true)));
+			}
+		}
+		else
+		{
+			stack_pop();
+			ereport(DEBUG1, (errmsg("UTILITY STACK POP"), errhidestmt(true)));
+		}	
 	}
 }
 
@@ -1574,6 +1663,9 @@ _PG_init(void)
 
 	next_ExecutorCheckPerms_hook = ExecutorCheckPerms_hook;
 	ExecutorCheckPerms_hook = pgaudit_ExecutorCheckPerms_hook;
+
+	next_ExecutorEnd_hook = ExecutorEnd_hook;
+	ExecutorEnd_hook = pgaudit_ExecutorEnd_hook;
 
 	next_ProcessUtility_hook = ProcessUtility_hook;
 	ProcessUtility_hook = pgaudit_ProcessUtility_hook;

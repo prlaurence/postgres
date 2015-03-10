@@ -470,6 +470,7 @@ sub PgLogExecute
 	my $bExecute = shift;
 	my $bWait = shift;
 	my $bLogSql = shift;
+	my $bExpectError = shift;
 
 	# Set defaults
 	$bExecute = defined($bExecute) ? $bExecute : true;
@@ -478,7 +479,15 @@ sub PgLogExecute
 
 	if ($bExecute)
 	{
-		PgExecuteOnly($strSql);
+		eval
+		{
+			PgExecuteOnly($strSql);
+		};
+		
+		if ($@ && !$bExpectError)
+		{
+			confess $@;
+		}
 	}
 
 	PgLogExpect($strCommand, $bLogSql ? $strSql : '', $oData);
@@ -1154,9 +1163,6 @@ $strSql = 'PREPARE pgclassstmt (oid) as insert into test.test_insert (id) values
 PgLogExecute(COMMAND_PREPARE_WRITE, $strSql);
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
 
-# $strParameter = "\$1 = '1'";
-# PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false);
-
 $strSql = 'EXECUTE pgclassstmt (1)';
 PgLogExecute(COMMAND_EXECUTE_WRITE, $strSql, undef, true, true);
 
@@ -1238,16 +1244,16 @@ $strSql = "select * from test where id = \$1";
 $hStatement->bind_param(1, 101);
 $hStatement->execute();
 
-$strParameter = "\$1 = '101'";
+#$strParameter = "\$1 = '101'";
 PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
-PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
+#PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
 
 $hStatement->bind_param(1, 103);
 $hStatement->execute();
 
-$strParameter = "\$1 = '103'";
+#$strParameter = "\$1 = '103'";
 PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
-PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
+#PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
 
 $hStatement->finish();
 
@@ -1265,6 +1271,16 @@ PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test_block', false, false);
 
 $strSql = 'drop table test_block';
 PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'public.test_block', false, false);
+
+# Generate an error in a do block and make sure the stack gets cleaned up
+$strSql = 'do $$ ' .
+		  'begin ' .
+		  '    create table bobus.test_block (id int); ' .
+		  'end; $$';
+
+PgLogExecute(COMMAND_DO, $strSql, undef, undef, undef, undef, true);
+# PgLogExecute(COMMAND_SELECT, 'select 1');
+# exit 0;
 
 # Try explain
 PgLogExecute(COMMAND_SELECT, 'explain select 1', undef, true, false);
