@@ -171,7 +171,6 @@ typedef struct AuditEventStackItem
 	int64 substatementTotal;
 
 	MemoryContext contextAudit;
-	MemoryContext contextOld;
 	MemoryContextCallback contextCallback;
 } AuditEventStackItem;
 
@@ -972,29 +971,46 @@ log_object_access(ObjectAccessType access,
  * Audit events can go down to multiple levels so a stack is maintained to keep
  * track of them.
  */
+
+/*
+ * Respond to callbacks registered with MemoryContextRegisterResetCallback().
+ * Removes the event(s) off the stack that have become obsolete once the 
+ * MemoryContext has been freed.  The callback should always be freeing the top
+ * of the stack, but the code is tolerant of out-of-order callbacks.
+ */
 static void
 stack_free(void *stackFree)
 {
-	AuditEventStackItem *stackItem = auditEventStack;
+	AuditEventStackItem *nextItem = auditEventStack;
 
-	if (stackItem == (AuditEventStackItem *)stackFree)
+	while (nextItem != NULL)
 	{
-		auditEventStack = NULL;
-		return;
-	}
-
-	while (stackItem != NULL)
-	{
-		if (stackItem->next == (AuditEventStackItem *)stackFree)
+		if (nextItem == (AuditEventStackItem *)stackFree)
 		{
-			stackItem->next = NULL;
+			auditEventStack = nextItem->next;
+			//
+			// if (auditEventStack)
+			// {
+			// 	ereport(DEBUG1, (errmsg("STACK FREE"), errhidestmt(true)));
+			// }
+			// else
+			// {
+			// 	ereport(DEBUG1, (errmsg("STACK FREE ALL"), errhidestmt(true)));
+			// }
+			//
 			return;
 		}
 		
-		stackItem = stackItem->next;
+		nextItem = nextItem->next;
 	}
+	//
+	// ereport(DEBUG1, (errmsg("STACK FREE NOTHING"), errhidestmt(true)));
 }
 
+/*
+ * Push a new audit event onto the stack and create a new memory context to
+ * store it.
+ */
 static AuditEventStackItem *
 stack_push()
 {
@@ -1015,7 +1031,6 @@ stack_push()
 
 	/* Store memory contexts */
 	stackItem->contextAudit = contextAudit;
-	stackItem->contextOld = contextOld;
 	
 	/* If item already on stack then push it down */
 	if (auditEventStack != NULL)
@@ -1048,31 +1063,32 @@ stack_push()
 	 */
 	stackItem->contextCallback.func = stack_free;
 	stackItem->contextCallback.arg = (void *)stackItem;
-	MemoryContextRegisterResetCallback(contextAudit, &stackItem->contextCallback);
+	MemoryContextRegisterResetCallback(contextAudit,
+									   &stackItem->contextCallback);
 
 	/* Push item on the stack */
 	auditEventStack = stackItem;
+
+	/* Return to the old memory context */
+	MemoryContextSwitchTo(contextOld);
 
 	/* Return the stack item */
 	return stackItem;
 }
 
+/*
+ * Pop an audit event from the stack by deleting the memory context that
+ * contains it.  The callback to stack_free() does the actual pop.
+ */
 static void
 stack_pop()
 {
-	AuditEventStackItem *stackItem;
-
 	/* Error if the stack is already empty */
 	if (auditEventStack == NULL)
 		elog(ERROR, "pg_audit stack is already empty");
-	
-	/* Pop item off the stack */
-	stackItem = auditEventStack;
-	auditEventStack = stackItem->next;
-	
+
 	/* Switch the old memory context and delete the audit context */
-	MemoryContextSwitchTo(stackItem->contextOld);
-	MemoryContextDelete(stackItem->contextAudit);
+	MemoryContextDelete(auditEventStack->contextAudit);
 }
 
 /*
