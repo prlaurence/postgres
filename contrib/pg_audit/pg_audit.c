@@ -144,8 +144,8 @@ enum LogClass
  */
 typedef struct
 {
-	uint64 statementId;
-	uint64 substatementId;
+	int64 statementId;
+	int64 substatementId;
 
 	LogStmtLevel logStmtLevel;
 	NodeTag commandTag;
@@ -166,7 +166,7 @@ typedef struct AuditEventStackItem
 {
 	struct AuditEventStackItem *next;
 	AuditEvent auditEvent;
-	uint64 substatementTotal;
+	int64 substatementTotal;
 } AuditEventStackItem;
 
 AuditEventStackItem *auditEventStack = NULL;
@@ -274,7 +274,7 @@ log_audit_event(AuditEvent *auditEvent)
 
 	/* Log via ereport(). */
 	ereport(LOG,
-		(errmsg("AUDIT: %s,%lld,%lld,%s,%s,%s,%s,%s",
+		(errmsg("AUDIT: %s,%ld,%ld,%s,%s,%s,%s,%s",
 			auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
 			auditEvent->statementId, auditEvent->substatementId,
 			classname, auditEvent->command, auditEvent->objectType,
@@ -332,7 +332,7 @@ log_audit_event(AuditEvent *auditEvent)
 		}
 
 		ereport(LOG,
-			(errmsg("AUDIT: %s,%lld,%lld,%s,%s,%s,%s,%s",
+			(errmsg("AUDIT: %s,%ld,%ld,%s,%s,%s,%s,%s",
 				auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
 				auditEvent->statementId, auditEvent->substatementId,
 				classname, CLASS_PARAMETER, auditEvent->objectType,

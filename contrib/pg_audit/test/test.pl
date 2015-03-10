@@ -1117,7 +1117,7 @@ PgLogExecute(COMMAND_CREATE_SCHEMA, $strSql, 'test');
 PgLogExecute(COMMAND_COPY_TO,
 			 "COPY pg_class to '" . abs_path($strTestPath) . "/class.out'");
              
-$strSql = 'CREATE  TABLE  test.pg_class     AS SELECT relname, relnamespace, reltype, reloftype, relowner, relam, relfilenode, reltablespace, relpages, reltuples, relallvisible, reltoastrelid, relhasindex, relisshared, relpersistence, relkind, relnatts, relchecks, relhasoids, relhaspkey, relhasrules, relhastriggers, relhassubclass, relrowsecurity, relispopulated, relreplident, relfrozenxid, relminmxid, relacl, reloptions FROM pg_catalog.pg_class ';
+$strSql = 'CREATE  TABLE  test.pg_class  WITH (oids=OFF)   AS SELECT relname, relnamespace, reltype, reloftype, relowner, relam, relfilenode, reltablespace, relpages, reltuples, relallvisible, reltoastrelid, relhasindex, relisshared, relpersistence, relkind, relnatts, relchecks, relhasoids, relhaspkey, relhasrules, relhastriggers, relhassubclass, relrowsecurity, relispopulated, relreplident, relfrozenxid, relminmxid, relacl, reloptions FROM pg_catalog.pg_class ';
 PgLogExecute(COMMAND_INSERT, $strSql, undef, true, false);
 PgLogExecute(COMMAND_CREATE_TABLE_AS, $strSql, 'test.pg_class', false, true);
 
@@ -1311,7 +1311,7 @@ PgLogExecute(COMMAND_SELECT, "select int_add(1, 1)",
 PgLogExecute(COMMAND_EXECUTE_FUNCTION, "select int_add(1, 1)",
 									   'public.int_add', false, true);
 
-$strSql = "CREATE AGGREGATE public.sum_test (   pg_catalog.int4) (SFUNC=public.int_add, STYPE=pg_catalog.int4, INITCOND='0')";
+$strSql = "CREATE AGGREGATE public.sum_test(  pg_catalog.int4) (SFUNC=public.int_add, STYPE=pg_catalog.int4, INITCOND='0')";
 PgLogExecute(COMMAND_CREATE_AGGREGATE, $strSql, 'public.sum_test(integer)');
 
 # There's a bug here in deparse:
