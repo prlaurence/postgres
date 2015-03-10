@@ -1203,6 +1203,12 @@ pgaudit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
 static void
 pgaudit_ExecutorEnd_hook(QueryDesc *queryDesc)
 {
+	/* Call the next hook or standard function */
+	if (next_ExecutorEnd_hook)
+		next_ExecutorEnd_hook(queryDesc);
+	else
+		standard_ExecutorEnd(queryDesc);
+
 	/* Pop the audit event off the stack */
 	if (!internalStatement)
 	{
