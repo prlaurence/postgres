@@ -46,11 +46,11 @@ void _PG_init(void);
 /*
  * Event trigger prototypes
  */
-Datum pg_audit_func_ddl_command_end(PG_FUNCTION_ARGS);
-Datum pg_audit_func_sql_drop(PG_FUNCTION_ARGS);
+Datum pg_audit_ddl_command_end(PG_FUNCTION_ARGS);
+Datum pg_audit_sql_drop(PG_FUNCTION_ARGS);
 
-PG_FUNCTION_INFO_V1(pg_audit_func_ddl_command_end);
-PG_FUNCTION_INFO_V1(pg_audit_func_sql_drop);
+PG_FUNCTION_INFO_V1(pg_audit_ddl_command_end);
+PG_FUNCTION_INFO_V1(pg_audit_sql_drop);
 
 /*
  * auditRole is the string value of the pgaudit.role GUC, which contains the
@@ -80,7 +80,7 @@ static uint64 auditLogBitmap = 0;
  */
 #define CLASS_DDL			"DDL"
 #define CLASS_FUNCTION		"FUNCTION"
-#define CLASS_MISC		    "MISC"
+#define CLASS_MISC			"MISC"
 #define CLASS_PARAMETER		"PARAMETER"
 #define CLASS_READ			"READ"
 #define CLASS_WRITE			"WRITE"
@@ -139,8 +139,8 @@ enum LogClass
 
 /*
  * An AuditEvent represents an operation that potentially affects a single
- * object. If an underlying command affects multiple objects multiple
- * AuditEvents must be created to represent it.
+ * object. If a statement affects multiple objects multiple AuditEvents must be
+ * created to represent it.
  */
 typedef struct
 {
@@ -206,10 +206,13 @@ stack_free(void *stackFree)
 {
 	AuditEventStackItem *nextItem = auditEventStack;
 
+	/* Only process if the stack contains items */
 	while (nextItem != NULL)
 	{
+		/* Check if this item matches the item to be freed */
 		if (nextItem == (AuditEventStackItem *)stackFree)
 		{
+			/* Move top of stack the the item after the freed item */
 			auditEventStack = nextItem->next;
 
 			/* If the stack is not empty */
@@ -227,7 +230,8 @@ stack_free(void *stackFree)
 
 			return;
 		}
-		
+
+		/* Still looking, test the next item */
 		nextItem = nextItem->next;
 	}
 }
@@ -386,6 +390,44 @@ log_check(AuditEvent *e, const char **classname)
 }
 
 /*
+ * Appends a properly quoted CSV field to StringInfo.
+ */
+static void
+append_valid_csv(StringInfoData *buffer, const char *appendStr)
+{
+	const char *pChar;
+
+	/*
+	 * If the append string is null then return.  NULL fields are not quoted
+	 * in CSV
+	 */
+	if (appendStr == NULL)
+		return;
+
+	/* Only format for CSV if appendStr contains: ", comma, \n, \r */
+	if (strstr(appendStr, ",") || strstr(appendStr, "\"") ||
+		strstr(appendStr, "\n") || strstr(appendStr, "\r"))
+	{
+		appendStringInfoCharMacro(buffer, '"');
+
+		for (pChar = appendStr; *pChar; pChar++)
+		{
+			if (*pChar == '"') /* double single quotes */
+				appendStringInfoCharMacro(buffer, *pChar);
+
+			appendStringInfoCharMacro(buffer, *pChar);
+		}
+
+		appendStringInfoCharMacro(buffer, '"');
+	}
+	/* Else just append */
+	else
+	{
+		appendStringInfoString(buffer, appendStr);
+	}
+}
+
+/*
  * Takes an AuditEvent and, if it log_check(), writes it to the audit log. The
  * AuditEvent is assumed to be completely filled in by the caller (unknown
  * values must be set to "" so that they can be logged without error checking).
@@ -394,14 +436,19 @@ static void
 log_audit_event(AuditEventStackItem *stackItem)
 {
 	const char *classname;
+	MemoryContext contextOld;
 
 	/* Check that this event should be logged. */
 	if (!log_check(&stackItem->auditEvent, &classname))
 		return;
 
+	/* Use audit memory context in case something is not freed */
+	contextOld = MemoryContextSwitchTo(stackItem->contextAudit);
+
 	/* Set statement and substatement Ids */
 	if (stackItem->auditEvent.statementId == 0)
 	{
+		/* If nothing has been logged yet then create a new statement Id */
 		if (!statementLogged)
 		{
 			statementTotal++;
@@ -412,80 +459,71 @@ log_audit_event(AuditEventStackItem *stackItem)
 		stackItem->auditEvent.substatementId = ++substatementTotal;
 	}
 
-	/* Log via ereport(). */
-	ereport(LOG,
-		(errmsg("AUDIT: %s,%ld,%ld,%s,%s,%s,%s,%s",
-			stackItem->auditEvent.granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
-			stackItem->auditEvent.statementId, stackItem->auditEvent.substatementId,
-			classname, stackItem->auditEvent.command, stackItem->auditEvent.objectType,
-			stackItem->auditEvent.objectName ? stackItem->auditEvent.objectName : "",
-			stackItem->auditEvent.commandText),
-		 errhidestmt(true)));
+	/* Create the audit string */
+	StringInfoData auditStr;
+	initStringInfo(&auditStr);
+
+	append_valid_csv(&auditStr, stackItem->auditEvent.command);
+	appendStringInfoCharMacro(&auditStr, ',');
+
+	append_valid_csv(&auditStr, stackItem->auditEvent.objectType);
+	appendStringInfoCharMacro(&auditStr, ',');
+
+	append_valid_csv(&auditStr, stackItem->auditEvent.objectName);
+	appendStringInfoCharMacro(&auditStr, ',');
+
+	append_valid_csv(&auditStr, stackItem->auditEvent.commandText);
 
 	/* If parameter logging is turned on and there are parameters to log */
-	if (auditLogBitmap & LOG_PARAMETER && stackItem->auditEvent.paramList != NULL &&
+	if (auditLogBitmap & LOG_PARAMETER &&
+		stackItem->auditEvent.paramList != NULL &&
 		stackItem->auditEvent.paramList->numParams > 0 &&
 		!IsAbortedTransactionBlockState())
 	{
 		ParamListInfo paramList = stackItem->auditEvent.paramList;
-		StringInfoData paramStr;
-		MemoryContext contextOld;
 		int paramIdx;
 
-		/* Make sure any trash is generated in MessageContext */
-		contextOld = MemoryContextSwitchTo(stackItem->contextAudit);
-
-		initStringInfo(&paramStr);
-
+		/* Iterate through all params */
 		for (paramIdx = 0; paramIdx < paramList->numParams; paramIdx++)
 		{
 			ParamExternData *prm = &paramList->params[paramIdx];
-			Oid			typoutput;
-			bool		typisvarlena;
-			char	   *pstring;
-			char	   *p;
+			Oid 			 typeOutput;
+			bool 			 typeIsVarLena;
+			char 			*paramStr;
 
-			appendStringInfo(&paramStr, "%s$%d = ",
-							 paramIdx > 0 ? ", " : "",
-							 paramIdx + 1);
+			/* Add a comma for each param */
+			appendStringInfoCharMacro(&auditStr, ',');
 
+			/* Skip this param if null or if oid is invalid */
 			if (prm->isnull || !OidIsValid(prm->ptype))
 			{
-				appendStringInfoString(&paramStr, "NULL");
 				continue;
 			}
 
-			getTypeOutputInfo(prm->ptype, &typoutput, &typisvarlena);
+			/* Output the string */
+			getTypeOutputInfo(prm->ptype, &typeOutput, &typeIsVarLena);
+			paramStr = OidOutputFunctionCall(typeOutput, prm->value);
 
-			pstring = OidOutputFunctionCall(typoutput, prm->value);
-
-			appendStringInfoCharMacro(&paramStr, '\'');
-			for (p = pstring; *p; p++)
-			{
-				if (*p == '\'') /* double single quotes */
-					appendStringInfoCharMacro(&paramStr, *p);
-				appendStringInfoCharMacro(&paramStr, *p);
-			}
-			appendStringInfoCharMacro(&paramStr, '\'');
-
-			pfree(pstring);
+			append_valid_csv(&auditStr, paramStr);
+			pfree(paramStr);
 		}
-
-		ereport(LOG,
-			(errmsg("AUDIT: %s,%ld,%ld,%s,%s,%s,%s,%s",
-				stackItem->auditEvent.granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
-				stackItem->auditEvent.statementId, stackItem->auditEvent.substatementId,
-				classname, CLASS_PARAMETER, stackItem->auditEvent.objectType,
-				stackItem->auditEvent.objectName ? stackItem->auditEvent.objectName : "",
-				paramStr.data),
-			 errhidestmt(true)));
-
-		pfree(paramStr.data);
-
-		MemoryContextSwitchTo(contextOld);
 	}
 
+	/* Log the audit string */
+	ereport(LOG,
+		(errmsg("AUDIT: %s,%ld,%ld,%s,%s",
+			stackItem->auditEvent.granted ?
+				AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
+			stackItem->auditEvent.statementId,
+			stackItem->auditEvent.substatementId,
+			classname, auditStr.data),
+		 errhidestmt(true)));
+
+	/* Mark the audit event as logged */
 	stackItem->auditEvent.logged = true;
+
+	/* Switch back to the old memory context */
+	MemoryContextSwitchTo(contextOld);
 }
 
 /*
@@ -498,7 +536,7 @@ log_acl_check(Datum aclDatum, Oid auditOid, AclMode mask)
 {
 	bool		result = false;
 	Acl		   *acl;
-	AclItem    *aclItemData;
+	AclItem	   *aclItemData;
 	int			aclIndex;
 	int			aclTotal;
 
@@ -780,10 +818,6 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 			auditEventStack->auditEvent.objectName = "";
 			auditEventStack->auditEvent.objectType = "";
 
-			ereport(LOG,
-					(errmsg("SESSION LOG: %s", auditEventStack->auditEvent.commandText),
-					 errhidestmt(true)));
-
 			log_audit_event(auditEventStack);
 
 			first = false;
@@ -793,39 +827,48 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		switch (rte->relkind)
 		{
 			case RELKIND_RELATION:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_TABLE;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_TABLE;
 				break;
 
 			case RELKIND_INDEX:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_INDEX;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_INDEX;
 				break;
 
 			case RELKIND_SEQUENCE:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_SEQUENCE;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_SEQUENCE;
 				break;
 
 			case RELKIND_TOASTVALUE:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_TOASTVALUE;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_TOASTVALUE;
 				break;
 
 			case RELKIND_VIEW:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_VIEW;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_VIEW;
 				break;
 
 			case RELKIND_COMPOSITE_TYPE:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_COMPOSITE_TYPE;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_COMPOSITE_TYPE;
 				break;
 
 			case RELKIND_FOREIGN_TABLE:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_FOREIGN_TABLE;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_FOREIGN_TABLE;
 				break;
 
 			case RELKIND_MATVIEW:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_MATVIEW;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_MATVIEW;
 				break;
 
 			default:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_UNKNOWN;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_UNKNOWN;
 				break;
 		}
 
@@ -908,10 +951,6 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		auditEventStack->auditEvent.granted = false;
 		auditEventStack->auditEvent.logged = false;
 
-		ereport(LOG,
-				(errmsg("SESSION DEFAULT LOG: %s", auditEventStack->auditEvent.commandText),
-				 errhidestmt(true)));
-
 		log_audit_event(auditEventStack);
 	}
 }
@@ -952,31 +991,38 @@ log_create_alter_drop(Oid classId,
 		switch (class->relkind)
 		{
 			case RELKIND_RELATION:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_TABLE;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_TABLE;
 				break;
 
 			case RELKIND_INDEX:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_INDEX;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_INDEX;
 				break;
 
 			case RELKIND_SEQUENCE:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_SEQUENCE;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_SEQUENCE;
 				break;
 
 			case RELKIND_VIEW:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_VIEW;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_VIEW;
 				break;
 
 			case RELKIND_COMPOSITE_TYPE:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_COMPOSITE_TYPE;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_COMPOSITE_TYPE;
 				break;
 
 			case RELKIND_FOREIGN_TABLE:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_FOREIGN_TABLE;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_FOREIGN_TABLE;
 				break;
 
 			case RELKIND_MATVIEW:
-				auditEventStack->auditEvent.objectType = OBJECT_TYPE_MATVIEW;
+				auditEventStack->auditEvent.objectType =
+					OBJECT_TYPE_MATVIEW;
 				break;
 
 			/*
@@ -1025,7 +1071,7 @@ log_function_execute(Oid objectId)
 		quote_qualified_identifier(get_namespace_name(proc->pronamespace),
 								   NameStr(proc->proname));
 	ReleaseSysCache(proctup);
-	
+
 	/* Log the function call */	
 	stackItem->auditEvent.logStmtLevel = LOGSTMT_ALL;
 	stackItem->auditEvent.commandTag = T_DoStmt;
@@ -1034,7 +1080,7 @@ log_function_execute(Oid objectId)
 	stackItem->auditEvent.commandText = stackItem->next->auditEvent.commandText;
 
 	log_audit_event(stackItem);
-	
+
 	/* Pop audit event from the stack */
 	stack_pop();
 }
@@ -1054,11 +1100,13 @@ log_object_access(ObjectAccessType access,
 	{
 		/* Log execute. */
 		case OAT_FUNCTION_EXECUTE:
-			log_function_execute(objectId);
+			if (auditLogBitmap & LOG_FUNCTION)
+				log_function_execute(objectId);
 			break;
 
 		/* Log create. */
 		case OAT_POST_CREATE:
+			if (auditLogBitmap & LOG_DDL)
 			{
 				ObjectAccessPostCreate *pc = arg;
 
@@ -1071,6 +1119,7 @@ log_object_access(ObjectAccessType access,
 
 		/* Log alter. */
 		case OAT_POST_ALTER:
+			if (auditLogBitmap & LOG_DDL)
 			{
 				ObjectAccessPostAlter *pa = arg;
 
@@ -1083,15 +1132,16 @@ log_object_access(ObjectAccessType access,
 
 		/* Log drop. */
 		case OAT_DROP:
-		{
-			ObjectAccessDrop *drop = arg;
+			if (auditLogBitmap & LOG_DDL)
+			{
+				ObjectAccessDrop *drop = arg;
 
-			if (drop->dropflags & PERFORM_DELETION_INTERNAL)
-				return;
+				if (drop->dropflags & PERFORM_DELETION_INTERNAL)
+					return;
 
-			log_create_alter_drop(classId, objectId);
-		}
-		break;
+				log_create_alter_drop(classId, objectId);
+			}
+			break;
 
 		/* All others processed by log_utility_command() */
 		default:
@@ -1122,9 +1172,8 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 	{
 		/* Allocate the audit event */
 		stackItem = stack_push();
-		ereport(DEBUG1, (errmsg("EXECUTOR STACK PUSH %s", queryDesc->sourceText), errhidestmt(true)));
 
-		/* Initialize command vars */
+		/* Initialize command */
 		switch (queryDesc->operation)
 		{	
 			case CMD_SELECT:
@@ -1158,20 +1207,11 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 				break;
 		}
 
-		/* Initialize the audit event. */
+		/* Initialize the audit event */
 		stackItem->auditEvent.objectName = "";
 		stackItem->auditEvent.objectType = "";
 		stackItem->auditEvent.commandText = queryDesc->sourceText;
-
-		if (auditEventStack == NULL)
-			stackItem->auditEvent.paramList = queryDesc->params;
-
-		if (queryDesc->params)
-		{
-			ereport(LOG,
-					(errmsg("QUERY PARAMS: %d", queryDesc->params->numParams),
-					 errhidestmt(true)));
-		}
+		stackItem->auditEvent.paramList = queryDesc->params;
 	}
 
 	/* Call the previous hook or standard function */
@@ -1220,7 +1260,6 @@ pgaudit_ExecutorEnd_hook(QueryDesc *queryDesc)
 	/* Pop the audit event off the stack */
 	if (!internalStatement)
 	{
-		ereport(DEBUG1, (errmsg("EXECUTOR STACK POP"), errhidestmt(true)));
 		stack_pop();
 	}
 }
@@ -1247,32 +1286,12 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 			if (auditEventStack != NULL)
 				elog(ERROR, "pg_audit stack is not empty");
 
-			/*
-			 * If this statement is top-level and the stack is not empty, then
-			 * an error must have occurred so clear the stack
-			 */
-			if (auditEventStack != NULL)
-			{
-				ereport(DEBUG1, (errmsg("STACK RESET"), errhidestmt(true)));
-
-				auditEventStack = NULL;
-			}
-
 			/* Set params */
 			stackItem = stack_push();
-			ereport(DEBUG1, (errmsg("UTILITY TOP STACK PUSH"), errhidestmt(true)));
 			stackItem->auditEvent.paramList = params;
-			
-			if (params != NULL)
-			{
-				ereport(DEBUG1, (errmsg("UTILITY PARAM"), errhidestmt(true)));
-			}
 		}
 		else
-		{
 			stackItem = stack_push();
-			ereport(DEBUG1, (errmsg("UTILITY STACK PUSH"), errhidestmt(true)));
-		}
 
 		stackItem->auditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
 		stackItem->auditEvent.commandTag = nodeTag(parsetree);
@@ -1281,7 +1300,10 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 		stackItem->auditEvent.objectType = "";
 		stackItem->auditEvent.commandText = queryString;
 
-		/* If this is a DO block log it before calling the next ProcessUtility hook */
+		/*
+		 * If this is a DO block log it before calling the next ProcessUtility
+		 * hook.
+		 */
 		if (auditLogBitmap != 0 &&
 			stackItem->auditEvent.commandTag == T_DoStmt &&
 			!IsAbortedTransactionBlockState())
@@ -1298,31 +1320,22 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 		standard_ProcessUtility(parsetree, queryString, context,
 								params, dest, completionTag);
 
-	/* Process the audit event if there is one */
+	/* Process the audit event if there is one. */
 	if (stackItem != NULL)
 	{
 		/* Log the utility command if logging is on, the command has not already
-		 * been logged by another hook, and the transaction is not aborted */
+		 * been logged by another hook, and the transaction is not aborted. */
 		if (auditLogBitmap != 0 && !stackItem->auditEvent.logged &&
 			!IsAbortedTransactionBlockState())
-		{
-			ereport(DEBUG1, (errmsg("UTILITY LOG"), errhidestmt(true)));
 			log_audit_event(stackItem);
-		}
 
 		if (context == PROCESS_UTILITY_TOPLEVEL)
 		{
 			while (auditEventStack != NULL)
-			{
 				stack_pop();
-				ereport(DEBUG1, (errmsg("UTILITY TOP STACK POP"), errhidestmt(true)));
-			}
 		}
 		else
-		{
 			stack_pop();
-			ereport(DEBUG1, (errmsg("UTILITY STACK POP"), errhidestmt(true)));
-		}	
 	}
 }
 
@@ -1338,7 +1351,8 @@ pgaudit_object_access_hook(ObjectAccessType access,
 						   int subId,
 						   void *arg)
 {
-	if (auditLogBitmap != 0 && !IsAbortedTransactionBlockState())
+	if (auditLogBitmap != 0 && !IsAbortedTransactionBlockState() &&
+		auditLogBitmap & (LOG_DDL | LOG_FUNCTION))
 		log_object_access(access, classId, objectId, subId, arg);
 
 	if (next_object_access_hook)
@@ -1350,99 +1364,99 @@ pgaudit_object_access_hook(ObjectAccessType access,
  */
 
 /*
- * A ddl_command_end event trigger to build AuditEvents for commands
- * that we can deparse. This function is called at the end of any DDL
- * command that has event trigger support.
+ * Supply additional data for (non drop) statements that have event trigger
+ * support and can be deparsed.
  */
-
 Datum
-pg_audit_func_ddl_command_end(PG_FUNCTION_ARGS)
+pg_audit_ddl_command_end(PG_FUNCTION_ARGS)
 {
-	if (auditLogBitmap != 0)
+	/* Continue only if session logging is enabled */
+	if (auditLogBitmap != LOG_DDL)
 	{
-		EventTriggerData *trigdata;
-		int               ret, row;
-		TupleDesc		  spi_tupdesc;
-		const char		 *query_get_creation_commands;
+		EventTriggerData *eventData;
+		int				  result, row;
+		TupleDesc		  spiTupDesc;
+		const char		 *query;
+		MemoryContext 	  contextQuery;
+		MemoryContext 	  contextOld;
 
+		/* This is an internal statement - do not log it */
 		internalStatement = true;
 
-		MemoryContext tmpcontext;
-		MemoryContext oldcontext;
-
+		/* Make sure the fuction was fired as a trigger */
 		if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
 			elog(ERROR, "not fired by event trigger manager");
 
-		/*
-		 * This query returns the objects affected by the DDL, and a JSON
-		 * representation of the parsed command. We use SPI to execute it,
-		 * and compose one AuditEvent per object in the results.
-		 */
+		/* Switch memory context */
+		contextQuery = AllocSetContextCreate(
+						CurrentMemoryContext,
+						"pgaudit_func_ddl_command_end temporary context",
+						ALLOCSET_DEFAULT_MINSIZE,
+						ALLOCSET_DEFAULT_INITSIZE,
+						ALLOCSET_DEFAULT_MAXSIZE);
+		contextOld = MemoryContextSwitchTo(contextQuery);
 
-		/*
-		 * XXX 'identity' and 'schema' will be changed to 'object_identity'
-		 * and 'schema_name' in an upcoming change to the deparse branch,
-		 * for consistency with the existing 'pg_event_trigger_dropped_objects()'
-		 * function
-		 */
-		query_get_creation_commands =
-			"SELECT classid, objid, objsubid, UPPER(object_type), schema,"
-			" identity, command"
-			"  FROM pg_event_trigger_get_creation_commands()";
+		/* Get information about triggered events */
+		eventData = (EventTriggerData *) fcinfo->context;
 
-		tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
-										   "pgaudit_func_ddl_command_end temporary context",
-										   ALLOCSET_DEFAULT_MINSIZE,
-										   ALLOCSET_DEFAULT_INITSIZE,
-										   ALLOCSET_DEFAULT_MAXSIZE);
-		oldcontext = MemoryContextSwitchTo(tmpcontext);
+		/* Return objects affected by the (non drop) DDL statement */
+		query = "SELECT classid, objid, objsubid, UPPER(object_type), schema,\n"
+				"       identity, command\n"
+				"  FROM pg_event_trigger_get_creation_commands()";
 
-		ret = SPI_connect();
-		if (ret < 0)
-			elog(ERROR, "pgaudit_func_ddl_command_end: SPI_connect returned %d",
-		                ret);
+		/* Attempt to connect */
+		result = SPI_connect();
 
-		ret = SPI_execute(query_get_creation_commands, true, 0);
-		if (ret != SPI_OK_SELECT)
-			elog(ERROR, "pgaudit_func_ddl_command_end: SPI_execute returned %d",
-		                ret);
+		if (result < 0)
+			elog(ERROR, "pg_audit_ddl_command_end: SPI_connect returned %d",
+						result);
 
-		spi_tupdesc = SPI_tuptable->tupdesc;
+		/* Execute the query */
+		result = SPI_execute(query, true, 0);
 
-		trigdata = (EventTriggerData *) fcinfo->context;
+		if (result != SPI_OK_SELECT)
+			elog(ERROR, "pg_audit_ddl_command_end: SPI_execute returned %d",
+						result);
+
+		/* Iterate returned rows */
+		spiTupDesc = SPI_tuptable->tupdesc;
 
 		for (row = 0; row < SPI_processed; row++)
 		{
-			HeapTuple  spi_tuple;
-			bool	   isnull;
+			HeapTuple  spiTuple;
+			bool	   isNull;
 
-			spi_tuple = SPI_tuptable->vals[row];
+			spiTuple = SPI_tuptable->vals[row];
 
+			/* Supply addition data to current audit event */
 			auditEventStack->auditEvent.logStmtLevel =
-				GetCommandLogLevel(trigdata->parsetree);
+				GetCommandLogLevel(eventData->parsetree);
 			auditEventStack->auditEvent.commandTag =
-				nodeTag(trigdata->parsetree);
+				nodeTag(eventData->parsetree);
 			auditEventStack->auditEvent.command =
-				CreateCommandTag(trigdata->parsetree);
+				CreateCommandTag(eventData->parsetree);
 			auditEventStack->auditEvent.objectName =
-				SPI_getvalue(spi_tuple, spi_tupdesc, 6);
+				SPI_getvalue(spiTuple, spiTupDesc, 6);
 			auditEventStack->auditEvent.objectType =
-				SPI_getvalue(spi_tuple, spi_tupdesc, 4);
+				SPI_getvalue(spiTuple, spiTupDesc, 4);
 			auditEventStack->auditEvent.commandText =
 				TextDatumGetCString(
 					DirectFunctionCall1(pg_event_trigger_expand_command,
-										SPI_getbinval(spi_tuple, spi_tupdesc,
-													  7, &isnull)));
-			auditEventStack->auditEvent.granted = false;
-			auditEventStack->auditEvent.logged = false;
+										SPI_getbinval(spiTuple, spiTupDesc,
+													  7, &isNull)));
 
+			/* Log the audit event */
 			log_audit_event(auditEventStack);
 		}
 
+		/* Complete the query */
 		SPI_finish();
-		MemoryContextSwitchTo(oldcontext);
-		MemoryContextDelete(tmpcontext);
 
+		/* Switch to the old memory context */
+		MemoryContextSwitchTo(contextOld);
+		MemoryContextDelete(contextQuery);
+
+		/* No longer in an internal statement */
 		internalStatement = false;
 	}
 
@@ -1450,84 +1464,91 @@ pg_audit_func_ddl_command_end(PG_FUNCTION_ARGS)
 }
 
 /*
- * An sql_drop event trigger to build AuditEvents for dropped objects.
- * At the moment, we do not have the ability to deparse these commands,
- * but once support for the is added upstream, it's easy to implement.
+ * Supply additional data for drop statements that have event trigger support.
  */
-
 Datum
-pg_audit_func_sql_drop(PG_FUNCTION_ARGS)
+pg_audit_sql_drop(PG_FUNCTION_ARGS)
 {
-	if (auditLogBitmap != 0)
+	if (auditLogBitmap & LOG_DDL)
 	{
-		EventTriggerData *trigdata;
-		TupleDesc		  spi_tupdesc;
-		int               ret, row;
-		const char		 *query_dropped_objects;
+		EventTriggerData *eventData;
+		int				  result, row;
+		TupleDesc		  spiTupDesc;
+		const char		 *query;
+		MemoryContext 	  contextQuery;
+		MemoryContext 	  contextOld;
 
+		/* This is an internal statement - do not log it */
 		internalStatement = true;
 
-		MemoryContext tmpcontext;
-		MemoryContext oldcontext;
-
-		/* Make sure function is called by event trigger */
+		/* Make sure the fuction was fired as a trigger */
 		if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
 			elog(ERROR, "not fired by event trigger manager");
 
-		/*
-		 * This query returns a list of objects dropped by the command
-		 * (which no longer exist, and thus cannot be looked up). With
-		 * no support for deparsing the command, the best we can do is
-		 * to log the identity of the objects.
-		 */
+		/* Switch memory context */
+		contextQuery = AllocSetContextCreate(
+						CurrentMemoryContext,
+						"pgaudit_func_ddl_command_end temporary context",
+						ALLOCSET_DEFAULT_MINSIZE,
+						ALLOCSET_DEFAULT_INITSIZE,
+						ALLOCSET_DEFAULT_MAXSIZE);
+		contextOld = MemoryContextSwitchTo(contextQuery);
 
-		query_dropped_objects =
-			"SELECT classid, objid, objsubid, UPPER(object_type), schema_name, "
-			" object_name, object_identity"
-			"  FROM pg_event_trigger_dropped_objects()";
+		/* Get information about triggered events */
+		eventData = (EventTriggerData *) fcinfo->context;
 
-		tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
-										   "pgaudit_func_sql_drop temporary context",
-										   ALLOCSET_DEFAULT_MINSIZE,
-										   ALLOCSET_DEFAULT_INITSIZE,
-										   ALLOCSET_DEFAULT_MAXSIZE);
-		oldcontext = MemoryContextSwitchTo(tmpcontext);
+		/* Return objects affected by the drop statement */
+		query = "SELECT classid, objid, objsubid, UPPER(object_type),\n"
+				"       schema_name, object_name, object_identity\n"
+				"  FROM pg_event_trigger_dropped_objects()";
 
-		ret = SPI_connect();
-		if (ret < 0)
-			elog(ERROR, "pgaudit_func_sql_drop: SPI_connect returned %d", ret);
+		/* Attempt to connect */
+		result = SPI_connect();
 
-		ret = SPI_execute(query_dropped_objects, true, 0);
-		if (ret != SPI_OK_SELECT)
-			elog(ERROR, "pgaudit_func_sql_drop: SPI_execute returned %d", ret);
+		if (result < 0)
+			elog(ERROR, "pg_audit_ddl_drop: SPI_connect returned %d",
+						result);
 
-		spi_tupdesc = SPI_tuptable->tupdesc;
+		/* Execute the query */
+		result = SPI_execute(query, true, 0);
 
-		trigdata = (EventTriggerData *) fcinfo->context;
+		if (result != SPI_OK_SELECT)
+			elog(ERROR, "pg_audit_ddl_drop: SPI_execute returned %d",
+						result);
+
+		/* Iterate returned rows */
+		spiTupDesc = SPI_tuptable->tupdesc;
 
 		for (row = 0; row < SPI_processed; row++)
 		{
-			HeapTuple  spi_tuple;
+			HeapTuple  spiTuple;
 			char *schemaName;
 
-			spi_tuple = SPI_tuptable->vals[row];
+			spiTuple = SPI_tuptable->vals[row];
 
-			auditEventStack->auditEvent.objectType = SPI_getvalue(spi_tuple, spi_tupdesc, 4);
-			schemaName = SPI_getvalue(spi_tuple, spi_tupdesc, 5);
+			auditEventStack->auditEvent.objectType =
+				SPI_getvalue(spiTuple, spiTupDesc, 4);
+			schemaName = SPI_getvalue(spiTuple, spiTupDesc, 5);
 
-			if (!(pg_strcasecmp(auditEventStack->auditEvent.objectType, "TYPE") == 0 ||
+			if (!(pg_strcasecmp(auditEventStack->auditEvent.objectType,
+							"TYPE") == 0 ||
 				  pg_strcasecmp(schemaName, "pg_toast") == 0))
 			{
-				auditEventStack->auditEvent.objectName = SPI_getvalue(spi_tuple, spi_tupdesc, 7);
+				auditEventStack->auditEvent.objectName =
+						SPI_getvalue(spiTuple, spiTupDesc, 7);
 
 				log_audit_event(auditEventStack);
 			}
 		}
 
+		/* Complete the query */
 		SPI_finish();
-		MemoryContextSwitchTo(oldcontext);
-		MemoryContextDelete(tmpcontext);
 
+		/* Switch to the old memory context */
+		MemoryContextSwitchTo(contextOld);
+		MemoryContextDelete(contextQuery);
+
+		/* No longer in an internal statement */
 		internalStatement = false;
 	}
 
@@ -1648,8 +1669,8 @@ _PG_init(void)
 {
 	if (IsUnderPostmaster)
 		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("pg_audit must be loaded via shared_preload_libraries")));
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pg_audit must be loaded via shared_preload_libraries")));
 
 	/*
 	 * pg_audit.role = "audit"

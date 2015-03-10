@@ -97,9 +97,9 @@ use constant
 	COMMAND_FETCH					=> 'FETCH',
 	COMMAND_GRANT					=> 'GRANT',
 	COMMAND_INSERT					=> 'INSERT',
-	COMMAND_PARAMETER				=> 'PARAMETER',
-	COMMAND_PARAMETER_READ			=> 'PARAMETER_READ',
-	COMMAND_PARAMETER_WRITE			=> 'PARAMETER_WRITE',
+	# COMMAND_PARAMETER				=> 'PARAMETER',
+	# COMMAND_PARAMETER_READ			=> 'PARAMETER_READ',
+	# COMMAND_PARAMETER_WRITE			=> 'PARAMETER_WRITE',
 	COMMAND_PREPARE					=> 'PREPARE',
 	COMMAND_PREPARE_READ			=> 'PREPARE READ',
 	COMMAND_PREPARE_WRITE			=> 'PREPARE WRITE',
@@ -235,10 +235,10 @@ my %oCommandHash =
 	&COMMAND_EXPLAIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_FETCH => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_GRANT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	&COMMAND_PARAMETER_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
-		&COMMAND => &COMMAND_PARAMETER},
-	&COMMAND_PARAMETER_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
-		&COMMAND => &COMMAND_PARAMETER},
+	# &COMMAND_PARAMETER_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
+	# 	&COMMAND => &COMMAND_PARAMETER},
+	# &COMMAND_PARAMETER_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
+	# 	&COMMAND => &COMMAND_PARAMETER},
 	&COMMAND_PREPARE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_PREPARE},
 	&COMMAND_PREPARE_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
@@ -470,6 +470,7 @@ sub PgLogExecute
 	my $bExecute = shift;
 	my $bWait = shift;
 	my $bLogSql = shift;
+	my $strParameter = shift;
 	my $bExpectError = shift;
 
 	# Set defaults
@@ -490,12 +491,30 @@ sub PgLogExecute
 		}
 	}
 
-	PgLogExpect($strCommand, $bLogSql ? $strSql : '', $oData);
+	PgLogExpect($strCommand, $bLogSql ? $strSql : '', $strParameter, $oData);
 
 	if ($bWait)
 	{
 		PgLogWait();
 	}
+}
+
+################################################################################
+# QuoteCSV
+################################################################################
+sub QuoteCSV
+{
+	my $strCSV = shift;
+	
+	if (defined($strCSV) &&
+		(index($strCSV, ',') >= 0 || index($strCSV, '"') > 0 ||
+		 index($strCSV, "\n") > 0 || index($strCSV, "\r") >= 0))
+	{
+		$strCSV =~ s/"/""/g;
+		$strCSV = "\"${strCSV}\"";
+	}
+	
+	return $strCSV;
 }
 
 ################################################################################
@@ -505,12 +524,21 @@ sub PgLogExpect
 {
 	my $strCommand = shift;
 	my $strSql = shift;
+	my $strParameter = shift;
 	my $oData = shift;
 
 	# If oData is false then no logging
 	if (defined($oData) && ref($oData) eq '' && !$oData)
 	{
 		return;
+	}
+
+	# Quote SQL if needs to be quoted
+	$strSql = QuoteCSV($strSql);
+	
+	if (defined($strParameter))
+	{
+		$strSql .= ",${strParameter}";
 	}
 
 	# Log based on session
@@ -544,7 +572,7 @@ sub PgLogExpect
 
 		if (defined($oData) && ref($oData) ne 'ARRAY')
 		{
-			$strObjectName = $oData;
+			$strObjectName = QuoteCSV($oData);
 		}
 
 		my $strLog .= "SESSION,${strClass},${strCommandLog}," .
@@ -560,7 +588,7 @@ sub PgLogExpect
 	{
 		foreach my $oTableHash (@{$oData})
 		{
-			my $strObjectName = ${$oTableHash}{&NAME};
+			my $strObjectName = QuoteCSV(${$oTableHash}{&NAME});
 			my $strCommandLog = ${$oTableHash}{&COMMAND};
 
 			if (defined($oAuditGrantHash{$strAuditRole}
@@ -863,7 +891,7 @@ sub PgAuditGrantReset
 ################################################################################
 my @oyTable;       # Store table info for select, insert, update, delete
 my $strSql;        # Hold Sql commands
-my $strParameter;  # Hold Sql parameters
+#my $strParameter;  # Hold Sql parameters
 
 # Drop the old cluster, build the code, and create a new cluster
 PgDrop();
@@ -1139,7 +1167,7 @@ PgLogExecute(COMMAND_PREPARE_READ,
 			 'PREPARE pgclassstmt (oid) as select *' .
 			 ' from pg_class where oid = $1');
 PgLogExecute(COMMAND_EXECUTE_READ,
-			 'EXECUTE pgclassstmt (1)', undef, true, false);
+			 'EXECUTE pgclassstmt (1)');
 PgLogExecute(COMMAND_DEALLOCATE,
 			 'DEALLOCATE pgclassstmt');
 
@@ -1161,7 +1189,10 @@ PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'test.test_insert');
 
 $strSql = 'PREPARE pgclassstmt (oid) as insert into test.test_insert (id) values ($1)';
 PgLogExecute(COMMAND_PREPARE_WRITE, $strSql);
-PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false, undef, "1");
+
+# $strParameter = "1";
+# PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false, undef, "1");
 
 $strSql = 'EXECUTE pgclassstmt (1)';
 PgLogExecute(COMMAND_EXECUTE_WRITE, $strSql, undef, true, true);
@@ -1224,16 +1255,16 @@ $strSql = 'select id from test';
 PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
 
 $strSql = 'insert into test (id) values (result.id + 100)';
-# $strParameter = "\$1 = '101'";
-PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+#$strParameter = ",,";
+PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false, undef, ",,");
 #PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false);
 
 # $strParameter = "\$1 = '102'";
-PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false, undef, ",,");
 #PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false);
 
 # $strParameter = "\$1 = '103'";
-PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false);
+PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false, undef, ",,");
 #PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, true);
 
 # Test EXECUTE with bind
@@ -1244,16 +1275,16 @@ $strSql = "select * from test where id = \$1";
 $hStatement->bind_param(1, 101);
 $hStatement->execute();
 
-#$strParameter = "\$1 = '101'";
-PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
-#PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
+# $strParameter = "101";
+PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false, undef, "101");
+# PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
 
 $hStatement->bind_param(1, 103);
 $hStatement->execute();
 
-#$strParameter = "\$1 = '103'";
-PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
-#PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
+# $strParameter = "103";
+PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false, undef, "103");
+# PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
 
 $hStatement->finish();
 
@@ -1278,7 +1309,7 @@ $strSql = 'do $$ ' .
 		  '    create table bobus.test_block (id int); ' .
 		  'end; $$';
 
-PgLogExecute(COMMAND_DO, $strSql, undef, undef, undef, undef, true);
+PgLogExecute(COMMAND_DO, $strSql, undef, undef, undef, undef, undef, true);
 # PgLogExecute(COMMAND_SELECT, 'select 1');
 # exit 0;
 
