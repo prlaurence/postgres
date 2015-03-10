@@ -167,8 +167,6 @@ typedef struct AuditEventStackItem
 	struct AuditEventStackItem *next;
 
 	AuditEvent auditEvent;
-	int64 substatementUniqueId;
-	int64 substatementTotal;
 
 	MemoryContext contextAudit;
 	MemoryContextCallback contextCallback;
@@ -180,8 +178,131 @@ AuditEventStackItem *auditEventStack = NULL;
  * Track when an internal statement is running so it is not logged
  */
 static bool internalStatement = false;
+
+/*
+ * Track running total for statements and substatements and whether or not
+ * anything has been logged since this statement began.
+ */
 static uint64 statementTotal = 0;
-static uint64 substatementUniqueTotal = 0;
+static uint64 substatementTotal = 0;
+
+static bool statementLogged = false;
+
+/*
+ * Stack functions
+ *
+ * Audit events can go down to multiple levels so a stack is maintained to keep
+ * track of them.
+ */
+
+/*
+ * Respond to callbacks registered with MemoryContextRegisterResetCallback().
+ * Removes the event(s) off the stack that have become obsolete once the 
+ * MemoryContext has been freed.  The callback should always be freeing the top
+ * of the stack, but the code is tolerant of out-of-order callbacks.
+ */
+static void
+stack_free(void *stackFree)
+{
+	AuditEventStackItem *nextItem = auditEventStack;
+
+	while (nextItem != NULL)
+	{
+		if (nextItem == (AuditEventStackItem *)stackFree)
+		{
+			auditEventStack = nextItem->next;
+
+			/* If the stack is not empty */
+			if (auditEventStack == NULL)
+			{
+				/* Reset internal statement in case of error */
+				internalStatement = false;
+				
+				/* Reset sub statement total */
+				substatementTotal = 0;
+
+				/* Reset statement logged flag total */
+				statementLogged = false;
+			}
+
+			return;
+		}
+		
+		nextItem = nextItem->next;
+	}
+}
+
+/*
+ * Push a new audit event onto the stack and create a new memory context to
+ * store it.
+ */
+static AuditEventStackItem *
+stack_push()
+{
+	MemoryContext contextAudit;
+	MemoryContext contextOld;
+	AuditEventStackItem *stackItem;
+
+	/* Create a new memory context */
+	contextAudit = AllocSetContextCreate(CurrentMemoryContext,
+										 "pg_audit stack context",
+										 ALLOCSET_DEFAULT_MINSIZE,
+										 ALLOCSET_DEFAULT_INITSIZE,
+										 ALLOCSET_DEFAULT_MAXSIZE);
+	contextOld = MemoryContextSwitchTo(contextAudit);
+
+	/* Allocate the stack item */
+	stackItem = palloc0(sizeof(AuditEventStackItem));
+
+	/* Store memory contexts */
+	stackItem->contextAudit = contextAudit;
+
+	/* If item already on stack then push it down */
+	if (auditEventStack != NULL)
+		stackItem->next = auditEventStack;
+	else
+		stackItem->next = NULL;
+
+	/* 
+	 * Setup a callback in case an error happens.  stack_free() will truncate
+	 * the stack at this item.
+	 */
+	stackItem->auditEvent.statementId = 0;
+	stackItem->auditEvent.substatementId = 0;
+
+	/* 
+	 * Setup a callback in case an error happens.  stack_free() will truncate
+	 * the stack at this item.
+	 */
+	stackItem->contextCallback.func = stack_free;
+	stackItem->contextCallback.arg = (void *)stackItem;
+	MemoryContextRegisterResetCallback(contextAudit,
+									   &stackItem->contextCallback);
+
+	/* Push item on the stack */
+	auditEventStack = stackItem;
+
+	/* Return to the old memory context */
+	MemoryContextSwitchTo(contextOld);
+
+	/* Return the stack item */
+	return stackItem;
+}
+
+/*
+ * Pop an audit event from the stack by deleting the memory context that
+ * contains it.  The callback to stack_free() does the actual pop.
+ */
+static void
+stack_pop()
+{
+	/* Error if the stack is already empty */
+	if (auditEventStack == NULL)
+		elog(ERROR, "pg_audit stack is already empty");
+
+	/* Switch the old memory context and delete the audit context */
+	MemoryContextDelete(auditEventStack->contextAudit);
+}
 
 /*
  * Takes an AuditEvent and returns true or false depending on whether the event
@@ -270,36 +391,49 @@ log_check(AuditEvent *e, const char **classname)
  * values must be set to "" so that they can be logged without error checking).
  */
 static void
-log_audit_event(AuditEvent *auditEvent)
+log_audit_event(AuditEventStackItem *stackItem)
 {
 	const char *classname;
 
 	/* Check that this event should be logged. */
-	if (!log_check(auditEvent, &classname))
+	if (!log_check(&stackItem->auditEvent, &classname))
 		return;
+
+	/* Set statement and substatement Ids */
+	if (stackItem->auditEvent.statementId == 0)
+	{
+		if (!statementLogged)
+		{
+			statementTotal++;
+			statementLogged = true;
+		}
+		
+		stackItem->auditEvent.statementId = statementTotal;
+		stackItem->auditEvent.substatementId = ++substatementTotal;
+	}
 
 	/* Log via ereport(). */
 	ereport(LOG,
 		(errmsg("AUDIT: %s,%ld,%ld,%s,%s,%s,%s,%s",
-			auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
-			auditEvent->statementId, auditEvent->substatementId,
-			classname, auditEvent->command, auditEvent->objectType,
-			auditEvent->objectName ? auditEvent->objectName : "",
-			auditEvent->commandText),
+			stackItem->auditEvent.granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
+			stackItem->auditEvent.statementId, stackItem->auditEvent.substatementId,
+			classname, stackItem->auditEvent.command, stackItem->auditEvent.objectType,
+			stackItem->auditEvent.objectName ? stackItem->auditEvent.objectName : "",
+			stackItem->auditEvent.commandText),
 		 errhidestmt(true)));
 
 	/* If parameter logging is turned on and there are parameters to log */
-	if (auditLogBitmap & LOG_PARAMETER && auditEvent->paramList != NULL &&
-		auditEvent->paramList->numParams > 0 &&
+	if (auditLogBitmap & LOG_PARAMETER && stackItem->auditEvent.paramList != NULL &&
+		stackItem->auditEvent.paramList->numParams > 0 &&
 		!IsAbortedTransactionBlockState())
 	{
-		ParamListInfo paramList = auditEvent->paramList;
+		ParamListInfo paramList = stackItem->auditEvent.paramList;
 		StringInfoData paramStr;
-		MemoryContext oldContext;
+		MemoryContext contextOld;
 		int paramIdx;
 
 		/* Make sure any trash is generated in MessageContext */
-		oldContext = MemoryContextSwitchTo(MessageContext);
+		contextOld = MemoryContextSwitchTo(stackItem->contextAudit);
 
 		initStringInfo(&paramStr);
 
@@ -339,19 +473,19 @@ log_audit_event(AuditEvent *auditEvent)
 
 		ereport(LOG,
 			(errmsg("AUDIT: %s,%ld,%ld,%s,%s,%s,%s,%s",
-				auditEvent->granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
-				auditEvent->statementId, auditEvent->substatementId,
-				classname, CLASS_PARAMETER, auditEvent->objectType,
-				auditEvent->objectName ? auditEvent->objectName : "",
+				stackItem->auditEvent.granted ? AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
+				stackItem->auditEvent.statementId, stackItem->auditEvent.substatementId,
+				classname, CLASS_PARAMETER, stackItem->auditEvent.objectType,
+				stackItem->auditEvent.objectName ? stackItem->auditEvent.objectName : "",
 				paramStr.data),
 			 errhidestmt(true)));
 
 		pfree(paramStr.data);
 
-		MemoryContextSwitchTo(oldContext);
+		MemoryContextSwitchTo(contextOld);
 	}
 
-	auditEvent->logged = true;
+	stackItem->auditEvent.logged = true;
 }
 
 /*
@@ -650,7 +784,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 					(errmsg("SESSION LOG: %s", auditEventStack->auditEvent.commandText),
 					 errhidestmt(true)));
 
-			log_audit_event(&auditEventStack->auditEvent);
+			log_audit_event(auditEventStack);
 
 			first = false;
 		}
@@ -758,7 +892,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		if (auditEventStack->auditEvent.granted)
 		{
 			auditEventStack->auditEvent.logged = false;
-			log_audit_event(&auditEventStack->auditEvent);
+			log_audit_event(auditEventStack);
 		}
 
 		pfree(auditEventStack->auditEvent.objectName);
@@ -778,7 +912,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 				(errmsg("SESSION DEFAULT LOG: %s", auditEventStack->auditEvent.commandText),
 				 errhidestmt(true)));
 
-		log_audit_event(&auditEventStack->auditEvent);
+		log_audit_event(auditEventStack);
 	}
 }
 
@@ -852,9 +986,6 @@ log_create_alter_drop(Oid classId,
 				return;
 				break;
 		}
-
-		/* Log the event */
-		// log_audit_event(&auditEventStack->auditEvent);
 	}
 }
 
@@ -867,7 +998,7 @@ log_function_execute(Oid objectId)
 {
 	HeapTuple proctup;
 	Form_pg_proc proc;
-	AuditEvent auditEvent;
+	AuditEventStackItem *stackItem;
 
 	/* Get info about the function. */
 	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(objectId));
@@ -886,23 +1017,26 @@ log_function_execute(Oid objectId)
 		return;
 	}
 
+	/* Push audit event onto the stack */
+	stackItem = stack_push();
+
 	/* Generate the fully-qualified function name. */
-	auditEvent.objectName =
+	stackItem->auditEvent.objectName =
 		quote_qualified_identifier(get_namespace_name(proc->pronamespace),
 								   NameStr(proc->proname));
 	ReleaseSysCache(proctup);
+	
+	/* Log the function call */	
+	stackItem->auditEvent.logStmtLevel = LOGSTMT_ALL;
+	stackItem->auditEvent.commandTag = T_DoStmt;
+	stackItem->auditEvent.command = COMMAND_EXECUTE;
+	stackItem->auditEvent.objectType = OBJECT_TYPE_FUNCTION;
+	stackItem->auditEvent.commandText = stackItem->next->auditEvent.commandText;
 
-	/* Log the function call */
-	auditEvent.logStmtLevel = LOGSTMT_ALL;
-	auditEvent.commandTag = T_DoStmt;
-	auditEvent.command = COMMAND_EXECUTE;
-	auditEvent.objectType = OBJECT_TYPE_FUNCTION;
-	auditEvent.commandText = debug_query_string;
-	auditEvent.paramList = NULL;
-	auditEvent.granted = false;
-	auditEvent.logged = false;
-
-	log_audit_event(&auditEvent);
+	log_audit_event(stackItem);
+	
+	/* Pop audit event from the stack */
+	stack_pop();
 }
 
 /*
@@ -963,132 +1097,6 @@ log_object_access(ObjectAccessType access,
 		default:
 			break;
 	}
-}
-
-/*
- * Stack functions
- *
- * Audit events can go down to multiple levels so a stack is maintained to keep
- * track of them.
- */
-
-/*
- * Respond to callbacks registered with MemoryContextRegisterResetCallback().
- * Removes the event(s) off the stack that have become obsolete once the 
- * MemoryContext has been freed.  The callback should always be freeing the top
- * of the stack, but the code is tolerant of out-of-order callbacks.
- */
-static void
-stack_free(void *stackFree)
-{
-	AuditEventStackItem *nextItem = auditEventStack;
-
-	while (nextItem != NULL)
-	{
-		if (nextItem == (AuditEventStackItem *)stackFree)
-		{
-			auditEventStack = nextItem->next;
-			//
-			// if (auditEventStack)
-			// {
-			// 	ereport(DEBUG1, (errmsg("STACK FREE"), errhidestmt(true)));
-			// }
-			// else
-			// {
-			// 	ereport(DEBUG1, (errmsg("STACK FREE ALL"), errhidestmt(true)));
-			// }
-			//
-			return;
-		}
-		
-		nextItem = nextItem->next;
-	}
-	//
-	// ereport(DEBUG1, (errmsg("STACK FREE NOTHING"), errhidestmt(true)));
-}
-
-/*
- * Push a new audit event onto the stack and create a new memory context to
- * store it.
- */
-static AuditEventStackItem *
-stack_push()
-{
-	MemoryContext contextAudit;
-	MemoryContext contextOld;
-	AuditEventStackItem *stackItem;
-
-	/* Create a new memory context */
-	contextAudit = AllocSetContextCreate(CurrentMemoryContext,
-										 "pg_audit stack context",
-										 ALLOCSET_DEFAULT_MINSIZE,
-										 ALLOCSET_DEFAULT_INITSIZE,
-										 ALLOCSET_DEFAULT_MAXSIZE);
-	contextOld = MemoryContextSwitchTo(contextAudit);
-
-	/* Allocate the stack item */
-	stackItem = palloc0(sizeof(AuditEventStackItem));
-
-	/* Store memory contexts */
-	stackItem->contextAudit = contextAudit;
-	
-	/* If item already on stack then push it down */
-	if (auditEventStack != NULL)
-	{
-		stackItem->auditEvent.statementId =
-				auditEventStack->auditEvent.statementId;
-		stackItem->auditEvent.substatementId =
-			++auditEventStack->substatementTotal;
-		stackItem->substatementTotal =
-			auditEventStack->substatementTotal;
-
-		stackItem->next = auditEventStack;
-	}
-	/* Else this item will be the top */
-	else
-	{
-		stackItem->auditEvent.statementId = ++statementTotal;
-		stackItem->auditEvent.substatementId = 1;
-		stackItem->substatementTotal = 1;
-
-		stackItem->next = NULL;
-	}
-
-	/* Generate a completely unique substatementId to help track this item */
-	stackItem->substatementUniqueId = ++substatementUniqueTotal;
-
-	/* 
-	 * Setup a callback in case an error happens.  stack_free() will truncate
-	 * the stack at this item.
-	 */
-	stackItem->contextCallback.func = stack_free;
-	stackItem->contextCallback.arg = (void *)stackItem;
-	MemoryContextRegisterResetCallback(contextAudit,
-									   &stackItem->contextCallback);
-
-	/* Push item on the stack */
-	auditEventStack = stackItem;
-
-	/* Return to the old memory context */
-	MemoryContextSwitchTo(contextOld);
-
-	/* Return the stack item */
-	return stackItem;
-}
-
-/*
- * Pop an audit event from the stack by deleting the memory context that
- * contains it.  The callback to stack_free() does the actual pop.
- */
-static void
-stack_pop()
-{
-	/* Error if the stack is already empty */
-	if (auditEventStack == NULL)
-		elog(ERROR, "pg_audit stack is already empty");
-
-	/* Switch the old memory context and delete the audit context */
-	MemoryContextDelete(auditEventStack->contextAudit);
 }
 
 /*
@@ -1250,9 +1258,6 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 				auditEventStack = NULL;
 			}
 
-			/* Reset internal statement in case of previous error */
-			internalStatement = false;
-
 			/* Set params */
 			stackItem = stack_push();
 			ereport(DEBUG1, (errmsg("UTILITY TOP STACK PUSH"), errhidestmt(true)));
@@ -1281,7 +1286,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 			stackItem->auditEvent.commandTag == T_DoStmt &&
 			!IsAbortedTransactionBlockState())
 		{
-			log_audit_event(&stackItem->auditEvent);
+			log_audit_event(stackItem);
 		}
 	}
 
@@ -1302,7 +1307,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 			!IsAbortedTransactionBlockState())
 		{
 			ereport(DEBUG1, (errmsg("UTILITY LOG"), errhidestmt(true)));
-			log_audit_event(&stackItem->auditEvent);
+			log_audit_event(stackItem);
 		}
 
 		if (context == PROCESS_UTILITY_TOPLEVEL)
@@ -1431,7 +1436,7 @@ pg_audit_func_ddl_command_end(PG_FUNCTION_ARGS)
 			auditEventStack->auditEvent.granted = false;
 			auditEventStack->auditEvent.logged = false;
 
-			log_audit_event(&auditEventStack->auditEvent);
+			log_audit_event(auditEventStack);
 		}
 
 		SPI_finish();
@@ -1515,7 +1520,7 @@ pg_audit_func_sql_drop(PG_FUNCTION_ARGS)
 			{
 				auditEventStack->auditEvent.objectName = SPI_getvalue(spi_tuple, spi_tupdesc, 7);
 
-				log_audit_event(&auditEventStack->auditEvent);
+				log_audit_event(auditEventStack);
 			}
 		}
 
