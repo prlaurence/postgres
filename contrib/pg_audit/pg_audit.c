@@ -271,13 +271,6 @@ stack_push()
 	 * Setup a callback in case an error happens.  stack_free() will truncate
 	 * the stack at this item.
 	 */
-	stackItem->auditEvent.statementId = 0;
-	stackItem->auditEvent.substatementId = 0;
-
-	/* 
-	 * Setup a callback in case an error happens.  stack_free() will truncate
-	 * the stack at this item.
-	 */
 	stackItem->contextCallback.func = stack_free;
 	stackItem->contextCallback.arg = (void *)stackItem;
 	MemoryContextRegisterResetCallback(contextAudit,

@@ -182,16 +182,19 @@ my $strTemporaryAuditLog;	# pg_audit.log setting that was set hot
 my %oCommandHash =
 (&COMMAND_ANALYZE => {
 	&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_ALTER_AGGREGATE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_AGGREGATE},
+	&COMMAND_ALTER_AGGREGATE => {&CLASS => &CLASS_DDL,
+		&TYPE => &TYPE_AGGREGATE},
 	&COMMAND_ALTER_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_ALTER_COLLATION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_COLLATION},
-	&COMMAND_ALTER_CONVERSION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_CONVERSION},
+	&COMMAND_ALTER_COLLATION => {&CLASS => &CLASS_DDL,
+		&TYPE => &TYPE_COLLATION},
+	&COMMAND_ALTER_CONVERSION => {&CLASS => &CLASS_DDL,
+		&TYPE => &TYPE_CONVERSION},
 	&COMMAND_ALTER_ROLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
 	&COMMAND_ALTER_ROLE_SET => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_ALTER_ROLE},
 	&COMMAND_ALTER_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	&COMMAND_ALTER_TABLE_COLUMN => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE_COLUMN,
-		&COMMAND => &COMMAND_ALTER_TABLE},
+	&COMMAND_ALTER_TABLE_COLUMN => {&CLASS => &CLASS_DDL,
+		&TYPE => &TYPE_TABLE_COLUMN, &COMMAND => &COMMAND_ALTER_TABLE},
 	&COMMAND_ALTER_TABLE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX,
 		&COMMAND => &COMMAND_ALTER_TABLE},
 	&COMMAND_BEGIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
@@ -201,9 +204,12 @@ my %oCommandHash =
 		&COMMAND => &COMMAND_COPY},
 	&COMMAND_COPY_TO => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_COPY},
-	&COMMAND_CREATE_AGGREGATE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_AGGREGATE},
-	&COMMAND_CREATE_CONVERSION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_CONVERSION},
-	&COMMAND_CREATE_COLLATION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_COLLATION},
+	&COMMAND_CREATE_AGGREGATE => {&CLASS => &CLASS_DDL,
+		&TYPE => &TYPE_AGGREGATE},
+	&COMMAND_CREATE_CONVERSION => {&CLASS => &CLASS_DDL,
+		&TYPE => &TYPE_CONVERSION},
+	&COMMAND_CREATE_COLLATION => {&CLASS => &CLASS_DDL,
+		&TYPE => &TYPE_COLLATION},
 	&COMMAND_CREATE_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
 	&COMMAND_CREATE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX},
 	&COMMAND_DEALLOCATE => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
@@ -218,12 +224,12 @@ my %oCommandHash =
 	&COMMAND_DROP_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
 	&COMMAND_DROP_SCHEMA => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
 	&COMMAND_DROP_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	&COMMAND_DROP_TABLE_CONSTRAINT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE_CONSTRAINT,
-		&COMMAND => &COMMAND_DROP_TABLE},
+	&COMMAND_DROP_TABLE_CONSTRAINT => {&CLASS => &CLASS_DDL,
+		&TYPE => &TYPE_TABLE_CONSTRAINT, &COMMAND => &COMMAND_DROP_TABLE},
 	&COMMAND_DROP_TABLE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX,
 		&COMMAND => &COMMAND_DROP_TABLE},
-	&COMMAND_DROP_TABLE_TOAST => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE_TOAST,
-		&COMMAND => &COMMAND_DROP_TABLE},
+	&COMMAND_DROP_TABLE_TOAST => {&CLASS => &CLASS_DDL,
+		&TYPE => &TYPE_TABLE_TOAST, &COMMAND => &COMMAND_DROP_TABLE},
 	&COMMAND_DROP_TABLE_TYPE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TYPE,
 		&COMMAND => &COMMAND_DROP_TABLE},
 	&COMMAND_EXECUTE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
@@ -235,10 +241,6 @@ my %oCommandHash =
 	&COMMAND_EXPLAIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_FETCH => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
 	&COMMAND_GRANT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	# &COMMAND_PARAMETER_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
-	# 	&COMMAND => &COMMAND_PARAMETER},
-	# &COMMAND_PARAMETER_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
-	# 	&COMMAND => &COMMAND_PARAMETER},
 	&COMMAND_PREPARE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
 		&COMMAND => &COMMAND_PREPARE},
 	&COMMAND_PREPARE_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
@@ -891,7 +893,6 @@ sub PgAuditGrantReset
 ################################################################################
 my @oyTable;       # Store table info for select, insert, update, delete
 my $strSql;        # Hold Sql commands
-#my $strParameter;  # Hold Sql parameters
 
 # Drop the old cluster, build the code, and create a new cluster
 PgDrop();
@@ -913,7 +914,8 @@ PgAuditLogSet(CONTEXT_ROLE, 'user2', (CLASS_READ, CLASS_WRITE));
 # User1 follows the global log settings
 PgSetUser('user1');
 
-$strSql = 'CREATE  TABLE  public.test (id pg_catalog.int4   )  WITH (oids=OFF)  ';
+$strSql = 'CREATE  TABLE  public.test (id pg_catalog.int4   )' .
+          '  WITH (oids=OFF)  ';
 PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test');
 PgLogExecute(COMMAND_SELECT, 'select * from test');
 
@@ -1039,8 +1041,7 @@ PgLogExecute(COMMAND_DROP_TABLE, "drop table test4", 'public.test4');
 # Make sure there are no more audit events pending in the postgres log
 PgLogWait();
 
-# Now create some email friendly tests.  These first tests are session logging
-# only.
+# Create some email friendly tests.  These first tests are session logging only.
 PgSetUser('postgres');
 
 &log("\nExamples:");
@@ -1051,7 +1052,11 @@ PgAuditLogSet(CONTEXT_GLOBAL, undef, (CLASS_DDL, CLASS_READ));
 
 PgSetUser('user1');
 
-$strSql = 'CREATE  TABLE  public.account (id pg_catalog.int4   , name pg_catalog.text   COLLATE pg_catalog."default", password pg_catalog.text   COLLATE pg_catalog."default", description pg_catalog.text   COLLATE pg_catalog."default")  WITH (oids=OFF)  ';
+$strSql = 'CREATE  TABLE  public.account (id pg_catalog.int4   ,' .
+          ' name pg_catalog.text   COLLATE pg_catalog."default", ' .
+		  'password pg_catalog.text   COLLATE pg_catalog."default", '.
+		  'description pg_catalog.text   COLLATE pg_catalog."default")  '.
+		  'WITH (oids=OFF)  ';
 PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.account');
 PgLogExecute(COMMAND_SELECT,
 			 'select * from account');
@@ -1154,7 +1159,14 @@ PgLogExecute(COMMAND_CREATE_SCHEMA, $strSql, 'test');
 PgLogExecute(COMMAND_COPY_TO,
 			 "COPY pg_class to '" . abs_path($strTestPath) . "/class.out'");
              
-$strSql = 'CREATE  TABLE  test.pg_class  WITH (oids=OFF)   AS SELECT relname, relnamespace, reltype, reloftype, relowner, relam, relfilenode, reltablespace, relpages, reltuples, relallvisible, reltoastrelid, relhasindex, relisshared, relpersistence, relkind, relnatts, relchecks, relhasoids, relhaspkey, relhasrules, relhastriggers, relhassubclass, relrowsecurity, relispopulated, relreplident, relfrozenxid, relminmxid, relacl, reloptions FROM pg_catalog.pg_class ';
+$strSql = 'CREATE  TABLE  test.pg_class  WITH (oids=OFF)   AS SELECT relname,' .
+          ' relnamespace, reltype, reloftype, relowner, relam, relfilenode, ' .
+		  'reltablespace, relpages, reltuples, relallvisible, reltoastrelid, ' .
+		  'relhasindex, relisshared, relpersistence, relkind, relnatts, ' .
+		  'relchecks, relhasoids, relhaspkey, relhasrules, relhastriggers, ' .
+		  'relhassubclass, relrowsecurity, relispopulated, relreplident, ' .
+		  'relfrozenxid, relminmxid, relacl, reloptions ' .
+		  'FROM pg_catalog.pg_class ';
 PgLogExecute(COMMAND_INSERT, $strSql, undef, true, false);
 PgLogExecute(COMMAND_CREATE_TABLE_AS, $strSql, 'test.pg_class', false, true);
 
@@ -1184,21 +1196,23 @@ PgLogExecute(COMMAND_COMMIT,
 			 'COMMIT');
 
 # Test prepared INSERT
-$strSql = 'CREATE  TABLE  test.test_insert (id pg_catalog.int4   )  WITH (oids=OFF)  ';
+$strSql = 'CREATE  TABLE  test.test_insert (id pg_catalog.int4   )  ' .
+          'WITH (oids=OFF)  ';
 PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'test.test_insert');
 
-$strSql = 'PREPARE pgclassstmt (oid) as insert into test.test_insert (id) values ($1)';
+$strSql = 'PREPARE pgclassstmt (oid) as insert into test.test_insert (id) ' .
+          'values ($1)';
 PgLogExecute(COMMAND_PREPARE_WRITE, $strSql);
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false, undef, "1");
-
-# $strParameter = "1";
-# PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false, undef, "1");
 
 $strSql = 'EXECUTE pgclassstmt (1)';
 PgLogExecute(COMMAND_EXECUTE_WRITE, $strSql, undef, true, true);
 
 # Create a table with a primary key
-$strSql = 'CREATE  TABLE  public.test (id pg_catalog.int4   , name pg_catalog.text   COLLATE pg_catalog."default", description pg_catalog.text   COLLATE pg_catalog."default", CONSTRAINT test_pkey PRIMARY KEY (id))  WITH (oids=OFF)  ';
+$strSql = 'CREATE  TABLE  public.test (id pg_catalog.int4   , ' .
+		  'name pg_catalog.text   COLLATE pg_catalog."default", description ' .
+		  'pg_catalog.text   COLLATE pg_catalog."default", CONSTRAINT ' .
+		  'test_pkey PRIMARY KEY (id))  WITH (oids=OFF)  ';
 PgLogExecute(COMMAND_CREATE_INDEX, $strSql, 'public.test_pkey', true, false);
 PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test', false, true);
 
@@ -1255,17 +1269,11 @@ $strSql = 'select id from test';
 PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false);
 
 $strSql = 'insert into test (id) values (result.id + 100)';
-#$strParameter = ",,";
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false, undef, ",,");
-#PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false);
 
-# $strParameter = "\$1 = '102'";
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false, undef, ",,");
-#PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, false);
 
-# $strParameter = "\$1 = '103'";
 PgLogExecute(COMMAND_INSERT, $strSql, undef, false, false, undef, ",,");
-#PgLogExecute(COMMAND_PARAMETER_WRITE, $strParameter, undef, false, true);
 
 # Test EXECUTE with bind
 $strSql = "select * from test where id = ?";
@@ -1275,16 +1283,12 @@ $strSql = "select * from test where id = \$1";
 $hStatement->bind_param(1, 101);
 $hStatement->execute();
 
-# $strParameter = "101";
 PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false, undef, "101");
-# PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
 
 $hStatement->bind_param(1, 103);
 $hStatement->execute();
 
-# $strParameter = "103";
 PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false, undef, "103");
-# PgLogExecute(COMMAND_PARAMETER_READ, $strParameter, undef, false, true);
 
 $hStatement->finish();
 
@@ -1297,7 +1301,8 @@ $strSql = 'do $$ ' .
 
 PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
 
-$strSql = 'CREATE  TABLE  public.test_block (id pg_catalog.int4   )  WITH (oids=OFF)  ';
+$strSql = 'CREATE  TABLE  public.test_block (id pg_catalog.int4   )  ' .
+          'WITH (oids=OFF)  ';
 PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test_block', false, false);
 
 $strSql = 'drop table test_block';
@@ -1340,38 +1345,48 @@ PgLogExecute(COMMAND_ALTER_TABLE, $strSql, 'public.test2');
 $strSql = 'ALTER TABLE public.test2 SET SCHEMA test';
 PgLogExecute(COMMAND_ALTER_TABLE, $strSql, 'test.test2');
 
-$strSql = 'ALTER TABLE test.test2 ADD COLUMN description pg_catalog.text   COLLATE pg_catalog."default"';
+$strSql = 'ALTER TABLE test.test2 ADD COLUMN description pg_catalog.text   ' .
+          'COLLATE pg_catalog."default"';
 PgLogExecute(COMMAND_ALTER_TABLE, $strSql, 'test.test2');
 
-PgLogExecute(COMMAND_ALTER_TABLE_COLUMN, 'alter table test.test2 drop description',
-								  'test.test2.description');
+PgLogExecute(COMMAND_ALTER_TABLE_COLUMN,
+			 'alter table test.test2 drop description',
+			 'test.test2.description');
 
 $strSql = 'drop table test.test2';
 PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'test.test2', true, false);
-PgLogExecute(COMMAND_DROP_TABLE_CONSTRAINT, $strSql, 'test_pkey on test.test2', false, false);
+PgLogExecute(COMMAND_DROP_TABLE_CONSTRAINT, $strSql, 'test_pkey on test.test2',
+             false, false);
 PgLogExecute(COMMAND_DROP_TABLE_INDEX, $strSql, 'test.test_pkey', false, true);
 
-$strSql = "CREATE  FUNCTION public.int_add(IN a pg_catalog.int4 , IN b pg_catalog.int4 ) RETURNS  pg_catalog.int4 LANGUAGE plpgsql  VOLATILE  CALLED ON NULL INPUT SECURITY INVOKER COST 100   AS ' begin return a + b; end '";
-PgLogExecute(COMMAND_CREATE_FUNCTION, $strSql, 'public.int_add(integer,integer)');
+$strSql = "CREATE  FUNCTION public.int_add(IN a pg_catalog.int4 , IN b " .
+          "pg_catalog.int4 ) RETURNS  pg_catalog.int4 LANGUAGE plpgsql  " .
+		  "VOLATILE  CALLED ON NULL INPUT SECURITY INVOKER COST 100   AS '" .
+		  " begin return a + b; end '";
+PgLogExecute(COMMAND_CREATE_FUNCTION, $strSql,
+			 'public.int_add(integer,integer)');
 PgLogExecute(COMMAND_SELECT, "select int_add(1, 1)",
 							 undef, true, false);
 PgLogExecute(COMMAND_EXECUTE_FUNCTION, "select int_add(1, 1)",
 									   'public.int_add', false, true);
 
-$strSql = "CREATE AGGREGATE public.sum_test(  pg_catalog.int4) (SFUNC=public.int_add, STYPE=pg_catalog.int4, INITCOND='0')";
+$strSql = "CREATE AGGREGATE public.sum_test(  pg_catalog.int4) " .
+          "(SFUNC=public.int_add, STYPE=pg_catalog.int4, INITCOND='0')";
 PgLogExecute(COMMAND_CREATE_AGGREGATE, $strSql, 'public.sum_test(integer)');
 
 # There's a bug here in deparse:
 # $strSql = "ALTER AGGREGATE public.sum_test(integer) RENAME TO sum_test2";
 # PgLogExecute(COMMAND_ALTER_AGGREGATE, $strSql, 'public.sum_test2(integer)');
 
-$strSql = "CREATE COLLATION public.collation_test (LC_COLLATE = 'de_DE', LC_CTYPE = 'de_DE')";
+$strSql = "CREATE COLLATION public.collation_test (LC_COLLATE = 'de_DE', " .
+          "LC_CTYPE = 'de_DE')";
 PgLogExecute(COMMAND_CREATE_COLLATION, $strSql, 'public.collation_test');
 
 $strSql =  "ALTER COLLATION public.collation_test RENAME TO collation_test2";
 PgLogExecute(COMMAND_ALTER_COLLATION, $strSql, 'public.collation_test2');
 
-$strSql = "CREATE  CONVERSION public.conversion_test FOR 'SQL_ASCII' TO 'MULE_INTERNAL' FROM pg_catalog.ascii_to_mic";
+$strSql = "CREATE  CONVERSION public.conversion_test FOR 'SQL_ASCII' " .
+          "TO 'MULE_INTERNAL' FROM pg_catalog.ascii_to_mic";
 PgLogExecute(COMMAND_CREATE_CONVERSION, $strSql, 'public.conversion_test');
 
 $strSql = "ALTER CONVERSION public.conversion_test RENAME TO conversion_test2";
