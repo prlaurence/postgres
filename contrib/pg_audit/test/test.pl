@@ -1375,8 +1375,8 @@ $strSql = "CREATE AGGREGATE public.sum_test(  pg_catalog.int4) " .
 PgLogExecute(COMMAND_CREATE_AGGREGATE, $strSql, 'public.sum_test(integer)');
 
 # There's a bug here in deparse:
-# $strSql = "ALTER AGGREGATE public.sum_test(integer) RENAME TO sum_test2";
-# PgLogExecute(COMMAND_ALTER_AGGREGATE, $strSql, 'public.sum_test2(integer)');
+$strSql = "ALTER AGGREGATE public.sum_test(integer) RENAME TO sum_test2";
+PgLogExecute(COMMAND_ALTER_AGGREGATE, $strSql, 'public.sum_test2(integer)');
 
 $strSql = "CREATE COLLATION public.collation_test (LC_COLLATE = 'de_DE', " .
           "LC_CTYPE = 'de_DE')";
