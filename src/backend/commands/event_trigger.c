@@ -20,6 +20,8 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_event_trigger.h"
 #include "catalog/pg_namespace.h"
+#include "catalog/pg_opclass.h"
+#include "catalog/pg_opfamily.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_trigger.h"
 #include "catalog/pg_type.h"
@@ -1550,6 +1552,35 @@ pg_event_trigger_table_rewrite_reason(PG_FUNCTION_ARGS)
 	PG_RETURN_INT32(currentEventTriggerState->table_rewrite_reason);
 }
 
+/*-------------------------------------------------------------------------
+ * Support for DDL command deparsing
+ *
+ * The routines below enable an event trigger function to obtain a list of
+ * DDL commands as they are executed, in a "normalized" format.  There are
+ * four main pieces to this feature:
+ *
+ * 1) Within ProcessUtilitySlow, or some sub-routine thereof, each DDL
+ * command must add an internal representation to the "commands stash",
+ * using the routines below.
+ *
+ * 2) Some time after that, the ddl_command_end event trigger occurs, and the
+ * command stash is made available to the event trigger function by way of
+ * a set-returning function called pg_event_trigger_get_creation_commands().
+ * XXX since this feature also captures ALTER and other commands, this
+ * function should probably be renamed.
+ *
+ * 3) deparse_utility.c knows how to interpret those internal formats and
+ * convert them into a JSON representation.  That representation has been
+ * designed to allow the event trigger function to inspect or modify the
+ * tree.
+ *
+ * 4) ddl_json.c knows how to convert the JSON representation back into
+ * a string corresponding to a valid command.  (This step is optional; the
+ * JSON itself could be stored directly into a table, for example for audit
+ * purposes.)
+ *-------------------------------------------------------------------------
+ */
+
 /*
  * EventTriggerStashCommand
  * 		Save data about a simple DDL command that was just executed
@@ -1622,6 +1653,9 @@ EventTriggerAlterTableStart(Node *parsetree)
 	MemoryContext	oldcxt;
 	StashedCommand *stashed;
 
+	if (currentEventTriggerState->commandCollectionInhibited)
+		return;
+
 	oldcxt = MemoryContextSwitchTo(currentEventTriggerState->cxt);
 
 	stashed = palloc(sizeof(StashedCommand));
@@ -1647,6 +1681,9 @@ EventTriggerAlterTableStart(Node *parsetree)
 void
 EventTriggerAlterTableRelid(Oid objectId)
 {
+	if (currentEventTriggerState->commandCollectionInhibited)
+		return;
+
 	currentEventTriggerState->curcmd->d.alterTable.objectId = objectId;
 }
 
@@ -1664,6 +1701,9 @@ EventTriggerAlterTableStashSubcmd(Node *subcmd, Oid relid, AttrNumber attnum,
 {
 	MemoryContext	oldcxt;
 	StashedATSubcmd *newsub;
+
+	if (currentEventTriggerState->commandCollectionInhibited)
+		return;
 
 	Assert(IsA(subcmd, AlterTableCmd));
 	Assert(OidIsValid(currentEventTriggerState->curcmd->d.alterTable.objectId));
@@ -1702,6 +1742,9 @@ EventTriggerAlterTableStashSubcmd(Node *subcmd, Oid relid, AttrNumber attnum,
 void
 EventTriggerAlterTableEnd(void)
 {
+	if (currentEventTriggerState->commandCollectionInhibited)
+		return;
+
 	/* If no subcommands, don't stash anything */
 	if (list_length(currentEventTriggerState->curcmd->d.alterTable.subcmds) != 0)
 	{
@@ -1767,6 +1810,9 @@ EventTriggerStashGrant(InternalGrant *istmt)
 	InternalGrant  *icopy;
 	ListCell	   *cell;
 
+	if (currentEventTriggerState->commandCollectionInhibited)
+		return;
+
 	oldcxt = MemoryContextSwitchTo(currentEventTriggerState->cxt);
 
 	/*
@@ -1791,6 +1837,110 @@ EventTriggerStashGrant(InternalGrant *istmt)
 	currentEventTriggerState->stash = lappend(currentEventTriggerState->stash,
 											  stashed);
 
+	MemoryContextSwitchTo(oldcxt);
+}
+
+/*
+ * EventTriggerStashAlterOpFam
+ * 		Save data about an ALTER OPERATOR FAMILY ADD/DROP command being
+ * 		executed
+ */
+void
+EventTriggerStashAlterOpFam(AlterOpFamilyStmt *stmt, Oid opfamoid,
+							List *operators, List *procedures)
+{
+	MemoryContext	oldcxt;
+	StashedCommand *stashed;
+
+	if (currentEventTriggerState->commandCollectionInhibited)
+		return;
+
+	oldcxt = MemoryContextSwitchTo(currentEventTriggerState->cxt);
+
+	stashed = palloc(sizeof(StashedCommand));
+	stashed->type = SCT_AlterOpFamily;
+	stashed->in_extension = creating_extension;
+	stashed->d.opfam.opfamOid = opfamoid;
+	stashed->d.opfam.operators = operators;		/* XXX prolly need to copy */
+	stashed->d.opfam.procedures = procedures;	/* XXX ditto */
+	stashed->parsetree = copyObject(stmt);
+
+	currentEventTriggerState->stash = lappend(currentEventTriggerState->stash,
+											  stashed);
+
+	MemoryContextSwitchTo(oldcxt);
+}
+
+void
+EventTriggerStashCreateOpClass(CreateOpClassStmt *stmt, Oid opcoid,
+							   List *operators, List *procedures)
+{
+	MemoryContext	oldcxt;
+	StashedCommand *stashed;
+
+	if (currentEventTriggerState->commandCollectionInhibited)
+		return;
+
+	oldcxt = MemoryContextSwitchTo(currentEventTriggerState->cxt);
+
+	stashed = palloc0(sizeof(StashedCommand));
+	stashed->type = SCT_CreateOpClass;
+	stashed->in_extension = creating_extension;
+	stashed->d.createopc.opcOid = opcoid;
+	stashed->d.createopc.operators = operators;	/* XXX prolly need to copy */
+	stashed->d.createopc.procedures = procedures;
+	stashed->parsetree = copyObject(stmt);
+
+	currentEventTriggerState->stash = lappend(currentEventTriggerState->stash,
+											  stashed);
+
+	MemoryContextSwitchTo(oldcxt);
+}
+
+
+/*
+ * EventTriggerStashAlterDefPrivs
+ * 		Save data about an ALTER DEFAULT PRIVILEGES command being
+ * 		executed
+ */
+void
+EventTriggerStashAlterDefPrivs(AlterDefaultPrivilegesStmt *stmt)
+{
+	MemoryContext	oldcxt;
+	StashedCommand *stashed;
+
+	if (currentEventTriggerState->commandCollectionInhibited)
+		return;
+
+	oldcxt = MemoryContextSwitchTo(currentEventTriggerState->cxt);
+
+	stashed = palloc0(sizeof(StashedCommand));
+	stashed->type = SCT_AlterDefaultPrivileges;
+
+	switch (stmt->action->objtype)
+	{
+		case ACL_OBJECT_RELATION:
+			stashed->d.defprivs.objtype = "TABLES";
+			break;
+		case ACL_OBJECT_FUNCTION:
+			stashed->d.defprivs.objtype = "FUNCTIONS";
+			break;
+		case ACL_OBJECT_SEQUENCE:
+			stashed->d.defprivs.objtype = "SEQUENCES";
+			break;
+		case ACL_OBJECT_TYPE:
+			stashed->d.defprivs.objtype = "TYPES";
+			break;
+		default:
+			elog(ERROR, "unexpected object type %d", stmt->action->objtype);
+	}
+
+
+	stashed->in_extension = creating_extension;
+	stashed->parsetree = copyObject(stmt);
+
+	currentEventTriggerState->stash = lappend(currentEventTriggerState->stash,
+											  stashed);
 	MemoryContextSwitchTo(oldcxt);
 }
 
@@ -1874,7 +2024,9 @@ pg_event_trigger_get_creation_commands(PG_FUNCTION_ARGS)
 			MemSet(nulls, 0, sizeof(nulls));
 
 			if (cmd->type == SCT_Simple ||
-				cmd->type == SCT_AlterTable)
+				cmd->type == SCT_AlterTable ||
+				cmd->type == SCT_AlterOpFamily ||
+				cmd->type == SCT_CreateOpClass)
 			{
 				const char *tag;
 				char	   *identity;
@@ -1887,6 +2039,14 @@ pg_event_trigger_get_creation_commands(PG_FUNCTION_ARGS)
 					ObjectAddressSet(addr,
 									 cmd->d.alterTable.classId,
 									 cmd->d.alterTable.objectId);
+				else if (cmd->type == SCT_AlterOpFamily)
+					ObjectAddressSet(addr,
+									 OperatorFamilyRelationId,
+									 cmd->d.opfam.opfamOid);
+				else if (cmd->type == SCT_CreateOpClass)
+					ObjectAddressSet(addr,
+									 OperatorClassRelationId,
+									 cmd->d.createopc.opcOid);
 
 				tag = CreateCommandTag(cmd->parsetree);
 
@@ -1948,6 +2108,27 @@ pg_event_trigger_get_creation_commands(PG_FUNCTION_ARGS)
 					values[i++] = CStringGetTextDatum(schema);
 				/* identity */
 				values[i++] = CStringGetTextDatum(identity);
+				/* in_extension */
+				values[i++] = BoolGetDatum(cmd->in_extension);
+				/* command */
+				values[i++] = CStringGetTextDatum(command);
+			}
+			else if (cmd->type == SCT_AlterDefaultPrivileges)
+			{
+				/* classid */
+				nulls[i++] = true;
+				/* objid */
+				nulls[i++] = true;
+				/* objsubid */
+				nulls[i++] = true;
+				/* command tag */
+				values[i++] = CStringGetTextDatum(CreateCommandTag(cmd->parsetree));
+				/* object_type */
+				values[i++] = CStringGetTextDatum(cmd->d.defprivs.objtype);
+				/* schema */
+				nulls[i++] = true;
+				/* identity */
+				nulls[i++] = true;
 				/* in_extension */
 				values[i++] = BoolGetDatum(cmd->in_extension);
 				/* command */

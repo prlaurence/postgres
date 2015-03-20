@@ -31,6 +31,7 @@
 #include "catalog/heap.h"
 #include "catalog/index.h"
 #include "catalog/namespace.h"
+#include "catalog/opfam_internal.h"
 #include "catalog/pg_aggregate.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_cast.h"
@@ -138,9 +139,7 @@ static void append_bool_object(ObjTree *tree, char *name, bool value);
 static void append_string_object(ObjTree *tree, char *name, char *value);
 static void append_object_object(ObjTree *tree, char *name, ObjTree *value);
 static void append_array_object(ObjTree *tree, char *name, List *array);
-#ifdef NOT_USED
 static void append_integer_object(ObjTree *tree, char *name, int64 value);
-#endif
 static void append_float_object(ObjTree *tree, char *name, float8 value);
 static inline void append_premade_object(ObjTree *tree, ObjElem *elem);
 static JsonbValue *objtree_to_jsonb_rec(ObjTree *tree, JsonbParseState *state);
@@ -344,7 +343,6 @@ new_float_object(float8 value)
 	return param;
 }
 
-#ifdef NOT_USED
 /*
  * Append an int64 parameter to a tree.
  */
@@ -357,7 +355,6 @@ append_integer_object(ObjTree *tree, char *name, int64 value)
 	param->name = name;
 	append_premade_object(tree, param);
 }
-#endif
 
 /*
  * Append a float8 parameter to a tree.
@@ -986,7 +983,7 @@ deparse_DefineStmt_Collation(Oid objectId, DefineStmt *define)
 		elog(ERROR, "cache lookup failed for collation with OID %u", objectId);
 	colForm = (Form_pg_collation) GETSTRUCT(colTup);
 
-	stmt = new_objtree_VA("CREATE COLLATION %{identity}O "
+	stmt = new_objtree_VA("CREATE COLLATION %{identity}D "
 						  "(LC_COLLATE = %{collate}L,"
 						  " LC_CTYPE = %{ctype}L)", 0);
 
@@ -1094,13 +1091,16 @@ deparse_DefineStmt_Operator(Oid objectId, DefineStmt *define)
 }
 
 static ObjTree *
-deparse_DefineStmt_TSConfig(Oid objectId, DefineStmt *define)
+deparse_DefineStmt_TSConfig(Oid objectId, DefineStmt *define,
+							ObjectAddress copied)
 {
 	HeapTuple   tscTup;
 	HeapTuple   tspTup;
 	ObjTree	   *stmt;
+	ObjTree	   *tmp;
 	Form_pg_ts_config tscForm;
 	Form_pg_ts_parser tspForm;
+	List	   *list;
 
 	tscTup = SearchSysCache1(TSCONFIGOID, ObjectIdGetDatum(objectId));
 	if (!HeapTupleIsValid(tscTup))
@@ -1115,56 +1115,32 @@ deparse_DefineStmt_TSConfig(Oid objectId, DefineStmt *define)
 	tspForm = (Form_pg_ts_parser) GETSTRUCT(tspTup);
 
 	stmt = new_objtree_VA("CREATE TEXT SEARCH CONFIGURATION %{identity}D "
-						  "(PARSER=%{parser}s)", 0);
+						  "(%{elems:, }s)", 0);
 
 	append_object_object(stmt, "identity",
 						 new_objtree_for_qualname(tscForm->cfgnamespace,
 												  NameStr(tscForm->cfgname)));
-	append_object_object(stmt, "parser",
-						 new_objtree_for_qualname(tspForm->prsnamespace,
-												  NameStr(tspForm->prsname)));
 
 	/*
-	 * If this text search configuration was created by copying another
-	 * one with "CREATE TEXT SEARCH CONFIGURATION x (COPY=y)", then y's
-	 * PARSER selection is copied along with its mappings of tokens to
-	 * dictionaries (created with ALTER … ADD MAPPING …).
-	 *
-	 * Unfortunately, there's no way to define these mappings in the
-	 * CREATE command, so if they exist for the configuration we're
-	 * deparsing, we must detect them and fail.
+	 * If tsconfig was copied from another one, define it like so.
 	 */
-
+	list = NIL;
+	if (copied.objectId != InvalidOid)
 	{
-		ScanKeyData skey;
-		SysScanDesc scan;
-		HeapTuple	tup;
-		Relation	map;
-		bool		has_mapping;
-
-		map = heap_open(TSConfigMapRelationId, AccessShareLock);
-
-		ScanKeyInit(&skey,
-					Anum_pg_ts_config_map_mapcfg,
-					BTEqualStrategyNumber, F_OIDEQ,
-					ObjectIdGetDatum(objectId));
-
-		scan = systable_beginscan(map, TSConfigMapIndexId, true,
-								  NULL, 1, &skey);
-
-		while (HeapTupleIsValid((tup = systable_getnext(scan))))
-		{
-			has_mapping = true;
-			break;
-		}
-
-		systable_endscan(scan);
-		heap_close(map, AccessShareLock);
-
-		if (has_mapping)
-			ereport(ERROR,
-					(errmsg("can't recreate text search configuration with mappings")));
+		tmp = new_objtree_VA("COPY=%{tsconfig}D", 0);
+		append_object_object(tmp, "tsconfig",
+							 new_objtree_for_qualname_id(TSConfigRelationId,
+														 copied.objectId));
 	}
+	else
+	{
+		tmp = new_objtree_VA("PARSER=%{parser}D", 0);
+		append_object_object(tmp, "parser",
+							 new_objtree_for_qualname(tspForm->prsnamespace,
+													  NameStr(tspForm->prsname)));
+	}
+	list = lappend(list, new_object_object(tmp));
+	append_array_object(stmt, "elems", list);
 
 	ReleaseSysCache(tspTup);
 	ReleaseSysCache(tscTup);
@@ -1539,7 +1515,7 @@ deparse_DefineStmt_Type(Oid objectId, DefineStmt *define)
 }
 
 static ObjTree *
-deparse_DefineStmt(Oid objectId, Node *parsetree)
+deparse_DefineStmt(Oid objectId, Node *parsetree, ObjectAddress secondaryObj)
 {
 	DefineStmt *define = (DefineStmt *) parsetree;
 	ObjTree	   *defStmt;
@@ -1559,7 +1535,7 @@ deparse_DefineStmt(Oid objectId, Node *parsetree)
 			break;
 
 		case OBJECT_TSCONFIGURATION:
-			defStmt = deparse_DefineStmt_TSConfig(objectId, define);
+			defStmt = deparse_DefineStmt_TSConfig(objectId, define, secondaryObj);
 			break;
 
 		case OBJECT_TSPARSER:
@@ -1662,6 +1638,72 @@ deparse_CreateExtensionStmt(Oid objectId, Node *parsetree)
 }
 
 static ObjTree *
+deparse_AlterExtensionStmt(Oid objectId, Node *parsetree)
+{
+	AlterExtensionStmt *node = (AlterExtensionStmt *) parsetree;
+	Relation    pg_extension;
+	HeapTuple   extTup;
+	Form_pg_extension extForm;
+	ObjTree	   *stmt;
+	ObjTree	   *tmp;
+	List	   *list = NIL;
+	ListCell   *cell;
+
+	pg_extension = heap_open(ExtensionRelationId, AccessShareLock);
+	extTup = get_catalog_object_by_oid(pg_extension, objectId);
+	if (!HeapTupleIsValid(extTup))
+		elog(ERROR, "cache lookup failed for extension with OID %u",
+			 objectId);
+	extForm = (Form_pg_extension) GETSTRUCT(extTup);
+
+	stmt = new_objtree_VA("ALTER EXTENSION %{identity}I UPDATE %{options: }s", 1,
+						  "identity", ObjTypeString,
+						  NameStr(extForm->extname));
+
+	foreach(cell, node->options)
+	{
+		DefElem *opt = (DefElem *) lfirst(cell);
+
+		if (strcmp(opt->defname, "new_version") == 0)
+		{
+			tmp = new_objtree_VA("TO %{version}L", 2,
+								 "type", ObjTypeString, "version",
+								 "version", ObjTypeString, defGetString(opt));
+			list = lappend(list, new_object_object(tmp));
+		}
+		else
+			elog(ERROR, "unsupported option %s", opt->defname);
+	}
+
+	append_array_object(stmt, "options", list);
+
+	heap_close(pg_extension, AccessShareLock);
+
+	return stmt;
+}
+
+static ObjTree *
+deparse_AlterExtensionContentsStmt(Oid objectId, Node *parsetree,
+								   ObjectAddress objectAddress)
+{
+	AlterExtensionContentsStmt *node = (AlterExtensionContentsStmt *) parsetree;
+	ObjTree	   *stmt;
+	char	   *fmt;
+
+	Assert(node->action == +1 || node->action == -1);
+
+	fmt = psprintf("ALTER EXTENSION %%{extidentity}I %s %s %%{objidentity}s",
+				   node->action == +1 ? "ADD" : "DROP",
+				   stringify_objtype(node->objtype));
+
+	stmt = new_objtree_VA(fmt, 2, "extidentity", ObjTypeString, node->extname,
+						  "objidentity", ObjTypeString,
+						  getObjectIdentity(&objectAddress));
+
+	return stmt;
+}
+
+static ObjTree *
 deparse_AlterDomainStmt(Oid objectId, Node *parsetree,
 						ObjectAddress constraintAddr)
 {
@@ -1741,72 +1783,6 @@ deparse_AlterDomainStmt(Oid objectId, Node *parsetree,
 	ReleaseSysCache(domTup);
 
 	return alterDom;
-}
-
-static ObjTree *
-deparse_AlterExtensionContentsStmt(Oid objectId, Node *parsetree,
-								   ObjectAddress objectAddress)
-{
-	AlterExtensionContentsStmt *node = (AlterExtensionContentsStmt *) parsetree;
-	ObjTree	   *stmt;
-	char	   *fmt;
-
-	Assert(node->action == +1 || node->action == -1);
-
-	fmt = psprintf("ALTER EXTENSION %%{extidentity}I %s %s %%{objidentity}s",
-				   node->action == +1 ? "ADD" : "DROP",
-				   stringify_objtype(node->objtype));
-
-	stmt = new_objtree_VA(fmt, 2, "extidentity", ObjTypeString, node->extname,
-						  "objidentity", ObjTypeString,
-						  getObjectIdentity(&objectAddress));
-
-	return stmt;
-}
-
-static ObjTree *
-deparse_AlterExtensionStmt(Oid objectId, Node *parsetree)
-{
-	AlterExtensionStmt *node = (AlterExtensionStmt *) parsetree;
-	Relation    pg_extension;
-	HeapTuple   extTup;
-	Form_pg_extension extForm;
-	ObjTree	   *stmt;
-	ObjTree	   *tmp;
-	List	   *list = NIL;
-	ListCell   *cell;
-
-	pg_extension = heap_open(ExtensionRelationId, AccessShareLock);
-	extTup = get_catalog_object_by_oid(pg_extension, objectId);
-	if (!HeapTupleIsValid(extTup))
-		elog(ERROR, "cache lookup failed for extension with OID %u",
-			 objectId);
-	extForm = (Form_pg_extension) GETSTRUCT(extTup);
-
-	stmt = new_objtree_VA("ALTER EXTENSION %{identity}I UPDATE %{options: }s", 1,
-						  "identity", ObjTypeString,
-						  NameStr(extForm->extname));
-
-	foreach(cell, node->options)
-	{
-		DefElem *opt = (DefElem *) lfirst(cell);
-
-		if (strcmp(opt->defname, "new_version") == 0)
-		{
-			tmp = new_objtree_VA("TO %{version}L", 2,
-								 "type", ObjTypeString, "version",
-								 "version", ObjTypeString, defGetString(opt));
-			list = lappend(list, new_object_object(tmp));
-		}
-		else
-			elog(ERROR, "unsupported option %s", opt->defname);
-	}
-
-	append_array_object(stmt, "options", list);
-
-	heap_close(pg_extension, AccessShareLock);
-
-	return stmt;
 }
 
 /*
@@ -2070,7 +2046,6 @@ deparse_AlterForeignServerStmt(Oid objectId, Node *parsetree)
 
 	return alterServer;
 }
-
 
 static ObjTree *
 deparse_CreateUserMappingStmt(Oid objectId, Node *parsetree)
@@ -4213,6 +4188,68 @@ deparse_RenameStmt(ObjectAddress address, Node *parsetree)
 	return renameStmt;
 }
 
+/*
+ * deparse an ALTER ... SET SCHEMA command.
+ */
+static ObjTree *
+deparse_AlterObjectSchemaStmt(ObjectAddress address, Node *parsetree,
+							  ObjectAddress oldschema)
+{
+	AlterObjectSchemaStmt *node = (AlterObjectSchemaStmt *) parsetree;
+	ObjTree	   *alterStmt;
+	char	   *fmt;
+	char	   *identity;
+	char	   *newschema;
+	char	   *oldschname;
+	char	   *ident;
+
+	newschema = node->newschema;
+
+	fmt = psprintf("ALTER %s %%{identity}s SET SCHEMA %%{newschema}I",
+				   stringify_objtype(node->objectType));
+	alterStmt = new_objtree_VA(fmt, 0);
+	append_string_object(alterStmt, "newschema", newschema);
+
+	/*
+	 * Since the command has already taken place from the point of view of
+	 * catalogs, getObjectIdentity returns the object name with the already
+	 * changed schema.  The output of our deparsing must return the original
+	 * schema name however, so we chop the schema name off the identity string
+	 * and then prepend the quoted schema name.
+	 *
+	 * XXX This is pretty clunky. Can we do better?
+	 */
+	identity = getObjectIdentity(&address);
+	oldschname = get_namespace_name(oldschema.objectId);
+	if (!oldschname)
+		elog(ERROR, "cache lookup failed for schema with OID %u", oldschema.objectId);
+	ident = psprintf("%s%s",
+					 quote_identifier(oldschname),
+					 identity + strlen(quote_identifier(newschema)));
+	append_string_object(alterStmt, "identity", ident);
+
+	return alterStmt;
+}
+
+static ObjTree *
+deparse_AlterOwnerStmt(ObjectAddress address, Node *parsetree)
+{
+	AlterOwnerStmt *node = (AlterOwnerStmt *) parsetree;
+	ObjTree	   *ownerStmt;
+	char	   *fmt;
+
+	fmt = psprintf("ALTER %s %%{identity}s OWNER TO %%{newowner}I",
+				   stringify_objtype(node->objectType));
+	ownerStmt = new_objtree_VA(fmt, 0);
+	append_string_object(ownerStmt, "newowner",
+						 get_rolespec_name(node->newowner));
+
+	append_string_object(ownerStmt, "identity",
+						 getObjectIdentity(&address));
+
+	return ownerStmt;
+}
+
 static inline ObjElem *
 deparse_Seq_Cache(ObjTree *parent, Form_pg_sequence seqdata)
 {
@@ -4816,8 +4853,9 @@ deparse_CreateSchemaStmt(Oid objectId, Node *parsetree)
 					   node->if_not_exists ? "IF NOT EXISTS" : "");
 
 	auth = new_objtree_VA("AUTHORIZATION %{authorization_role}I", 0);
-	if (node->authid)
-		append_string_object(auth, "authorization_role", node->authid);
+	if (node->authrole)
+		append_string_object(auth, "authorization_role",
+							 get_rolespec_name(node->authrole));
 	else
 	{
 		append_null_object(auth, "authorization_role");
@@ -4862,67 +4900,6 @@ deparse_AlterEnumStmt(Oid objectId, Node *parsetree)
 }
 
 /*
- * deparse an ALTER ... SET SCHEMA command.
- */
-static ObjTree *
-deparse_AlterObjectSchemaStmt(ObjectAddress address, Node *parsetree,
-							  ObjectAddress oldschema)
-{
-	AlterObjectSchemaStmt *node = (AlterObjectSchemaStmt *) parsetree;
-	ObjTree	   *alterStmt;
-	char	   *fmt;
-	char	   *identity;
-	char	   *newschema;
-	char	   *oldschname;
-	char	   *ident;
-
-	newschema = node->newschema;
-
-	fmt = psprintf("ALTER %s %%{identity}s SET SCHEMA %%{newschema}I",
-				   stringify_objtype(node->objectType));
-	alterStmt = new_objtree_VA(fmt, 0);
-	append_string_object(alterStmt, "newschema", newschema);
-
-	/*
-	 * Since the command has already taken place from the point of view of
-	 * catalogs, getObjectIdentity returns the object name with the already
-	 * changed schema.  The output of our deparsing must return the original
-	 * schema name however, so we chop the schema name off the identity string
-	 * and then prepend the quoted schema name.
-	 *
-	 * XXX This is pretty clunky. Can we do better?
-	 */
-	identity = getObjectIdentity(&address);
-	oldschname = get_namespace_name(oldschema.objectId);
-	if (!oldschname)
-		elog(ERROR, "cache lookup failed for schema with OID %u", oldschema.objectId);
-	ident = psprintf("%s%s",
-					 quote_identifier(oldschname),
-					 identity + strlen(quote_identifier(newschema)));
-	append_string_object(alterStmt, "identity", ident);
-
-	return alterStmt;
-}
-
-static ObjTree *
-deparse_AlterOwnerStmt(ObjectAddress address, Node *parsetree)
-{
-	AlterOwnerStmt *node = (AlterOwnerStmt *) parsetree;
-	ObjTree	   *ownerStmt;
-	char	   *fmt;
-
-	fmt = psprintf("ALTER %s %%{identity}s OWNER TO %%{newowner}I",
-				   stringify_objtype(node->objectType));
-	ownerStmt = new_objtree_VA(fmt, 0);
-	append_string_object(ownerStmt, "newowner", node->newowner);
-
-	append_string_object(ownerStmt, "identity",
-						 getObjectIdentity(&address));
-
-	return ownerStmt;
-}
-
-/*
  * Append a NULL-or-quoted-literal clause.  Useful for COMMENT and SECURITY
  * LABEL.
  */
@@ -4946,7 +4923,6 @@ append_literal_or_null(ObjTree *mainobj, char *elemname, char *value)
 
 	append_object_object(mainobj, elemname, top);
 }
-
 
 /*
  * Deparse a CommentStmt when it pertains to a constraint.
@@ -5048,49 +5024,57 @@ deparse_CommentStmt(ObjectAddress address, Node *parsetree)
 	return comment;
 }
 
-static ObjTree *
-deparse_CreatePolicyStmt(Oid objectId, Node *parsetree)
+/*
+ * Add common clauses to CreatePolicy or AlterPolicy deparse objects
+ */
+static void
+add_policy_clauses(ObjTree *policyStmt, Oid policyOid, List *roles,
+				   bool do_qual, bool do_with_check)
 {
-	CreatePolicyStmt *node = (CreatePolicyStmt *) parsetree;
-	ObjTree	   *policy;
-	ObjTree	   *tmp;
 	Relation	polRel = heap_open(PolicyRelationId, AccessShareLock);
-	HeapTuple	polTup = get_catalog_object_by_oid(polRel, objectId);
+	HeapTuple	polTup = get_catalog_object_by_oid(polRel, policyOid);
+	ObjTree	   *tmp;
 	Form_pg_policy polForm;
-	ListCell   *cell;
-	List	   *list;
 
 	if (!HeapTupleIsValid(polTup))
-		elog(ERROR, "cache lookup failed for policy %u", objectId);
+		elog(ERROR, "cache lookup failed for policy %u", policyOid);
+
 	polForm = (Form_pg_policy) GETSTRUCT(polTup);
 
-	policy = new_objtree_VA("CREATE POLICY %{identity}I ON %{table}D %{for_command}s "
-							"%{to_role}s %{using}s %{with_check}s", 1,
-							"identity", ObjTypeString, node->policy_name);
-
 	/* add the "ON table" clause */
-	append_object_object(policy, "table",
+	append_object_object(policyStmt, "table",
 						 new_objtree_for_qualname_id(RelationRelationId,
 													 polForm->polrelid));
-	/* add "FOR command" clause */
-	tmp = new_objtree_VA("FOR %{command}s", 1,
-						 "command", ObjTypeString, node->cmd);
-	append_object_object(policy, "for_command", tmp);
 
-	/* add the "TO role" clause. Always contains at least PUBLIC */
+	/*
+	 * Add the "TO role" clause, if any.  In the CREATE case, it always
+	 * contains at least PUBLIC, but in the ALTER case it might be empty.
+	 */
 	tmp = new_objtree_VA("TO %{role:, }I", 0);
-	list = NIL;
-	foreach (cell, node->roles)
+	if (roles)
 	{
-		list = lappend(list,
-					   new_string_object(strVal(lfirst(cell))));
+		List   *list = NIL;
+		ListCell *cell;
+
+		foreach (cell, roles)
+		{
+			RoleSpec   *spec = (RoleSpec *) lfirst(cell);
+			char	   *role = spec->roletype == ROLESPEC_PUBLIC ? "PUBLIC" :
+				get_rolespec_name((Node *) spec);
+
+			list = lappend(list, new_string_object(role));
+		}
+		append_array_object(tmp, "role", list);
 	}
-	append_array_object(tmp, "role", list);
-	append_object_object(policy, "to_role", tmp);
+	else
+	{
+		append_bool_object(tmp, "present", false);
+	}
+	append_object_object(policyStmt, "to_role", tmp);
 
 	/* add the USING clause, if any */
 	tmp = new_objtree_VA("USING (%{expression}s)", 0);
-	if (node->qual)
+	if (do_qual)
 	{
 		Datum	deparsed;
 		Datum	storedexpr;
@@ -5099,18 +5083,18 @@ deparse_CreatePolicyStmt(Oid objectId, Node *parsetree)
 		storedexpr = heap_getattr(polTup, Anum_pg_policy_polqual,
 								  RelationGetDescr(polRel), &isnull);
 		if (isnull)
-			elog(ERROR, "invalid NULL polqual expression in policy %u", objectId);
+			elog(ERROR, "invalid NULL polqual expression in policy %u", policyOid);
 		deparsed = DirectFunctionCall2(pg_get_expr, storedexpr, polForm->polrelid);
 		append_string_object(tmp, "expression",
 							 TextDatumGetCString(deparsed));
 	}
 	else
 		append_bool_object(tmp, "present", false);
-	append_object_object(policy, "using", tmp);
+	append_object_object(policyStmt, "using", tmp);
 
 	/* add the WITH CHECK clause, if any */
 	tmp = new_objtree_VA("WITH CHECK (%{expression}s)", 0);
-	if (node->with_check)
+	if (do_with_check)
 	{
 		Datum	deparsed;
 		Datum	storedexpr;
@@ -5119,16 +5103,51 @@ deparse_CreatePolicyStmt(Oid objectId, Node *parsetree)
 		storedexpr = heap_getattr(polTup, Anum_pg_policy_polwithcheck,
 								  RelationGetDescr(polRel), &isnull);
 		if (isnull)
-			elog(ERROR, "invalid NULL polwithcheck expression in policy %u", objectId);
+			elog(ERROR, "invalid NULL polwithcheck expression in policy %u", policyOid);
 		deparsed = DirectFunctionCall2(pg_get_expr, storedexpr, polForm->polrelid);
 		append_string_object(tmp, "expression",
 							 TextDatumGetCString(deparsed));
 	}
 	else
 		append_bool_object(tmp, "present", false);
-	append_object_object(policy, "with_check", tmp);
+	append_object_object(policyStmt, "with_check", tmp);
 
-	heap_close(polRel, AccessShareLock);
+	relation_close(polRel, AccessShareLock);
+}
+
+static ObjTree *
+deparse_CreatePolicyStmt(Oid objectId, Node *parsetree)
+{
+	CreatePolicyStmt *node = (CreatePolicyStmt *) parsetree;
+	ObjTree	   *policy;
+
+	policy = new_objtree_VA("CREATE POLICY %{identity}I ON %{table}D %{for_command}s "
+							"%{to_role}s %{using}s %{with_check}s", 2,
+							"identity", ObjTypeString, node->policy_name,
+							"for_command", ObjTypeObject,
+							new_objtree_VA("FOR %{command}s", 1,
+										   "command", ObjTypeString, node->cmd));
+
+	/* add the rest of the stuff */
+	add_policy_clauses(policy, objectId, node->roles, !!node->qual,
+					   !!node->with_check);
+
+	return policy;
+}
+
+static ObjTree *
+deparse_AlterPolicyStmt(Oid objectId, Node *parsetree)
+{
+	AlterPolicyStmt *node = (AlterPolicyStmt *) parsetree;
+	ObjTree	   *policy;
+
+	policy = new_objtree_VA("ALTER POLICY %{identity}I ON %{table}D "
+							"%{to_role}s %{using}s %{with_check}s", 1,
+							"identity", ObjTypeString, node->policy_name);
+
+	/* add the rest of the stuff */
+	add_policy_clauses(policy, objectId, node->roles, !!node->qual,
+					   !!node->with_check);
 
 	return policy;
 }
@@ -5270,6 +5289,158 @@ deparse_CreateCastStmt(Oid objectId, Node *parsetree)
 }
 
 static ObjTree *
+deparse_CreateOpClassStmt(StashedCommand *cmd)
+{
+	Oid			opcoid = cmd->d.createopc.opcOid;
+	HeapTuple   opcTup;
+	HeapTuple   opfTup;
+	Form_pg_opfamily opfForm;
+	Form_pg_opclass opcForm;
+	ObjTree	   *stmt;
+	ObjTree	   *tmp;
+	List	   *list;
+	ListCell   *cell;
+
+	opcTup = SearchSysCache1(CLAOID, ObjectIdGetDatum(opcoid));
+	if (!HeapTupleIsValid(opcTup))
+		elog(ERROR, "cache lookup failed for opclass with OID %u", opcoid);
+	opcForm = (Form_pg_opclass) GETSTRUCT(opcTup);
+
+	opfTup = SearchSysCache1(OPFAMILYOID, opcForm->opcfamily);
+	if (!HeapTupleIsValid(opfTup))
+		elog(ERROR, "cache lookup failed for operator family with OID %u", opcForm->opcfamily);
+	opfForm = (Form_pg_opfamily) GETSTRUCT(opfTup);
+
+	stmt = new_objtree_VA("CREATE OPERATOR CLASS %{identity}D %{default}s "
+						  "FOR TYPE %{type}T USING %{amname}I %{opfamily}s "
+						  "AS %{items:, }s", 0);
+
+	append_object_object(stmt, "identity",
+						 new_objtree_for_qualname(opcForm->opcnamespace,
+												  NameStr(opcForm->opcname)));
+
+	/*
+	 * Add the FAMILY clause; but if it has the same name and namespace as the
+	 * opclass, then have it expand to empty, because it would cause a failure
+	 * if the opfamily was created internally.
+	 */
+	tmp = new_objtree_VA("FAMILY %{opfamily}D", 1,
+						 "opfamily", ObjTypeObject,
+						 new_objtree_for_qualname(opfForm->opfnamespace,
+												  NameStr(opfForm->opfname)));
+	if (strcmp(NameStr(opfForm->opfname), NameStr(opcForm->opcname)) == 0 &&
+		opfForm->opfnamespace == opcForm->opcnamespace)
+		append_bool_object(tmp, "present", false);
+	append_object_object(stmt, "opfamily",  tmp);
+
+	/* Add the DEFAULT clause */
+	append_string_object(stmt, "default",
+						 opcForm->opcdefault ? "DEFAULT" : "");
+
+	/* Add the FOR TYPE clause */
+	append_object_object(stmt, "type",
+						 new_objtree_for_type(opcForm->opcintype, -1));
+
+	/* Add the USING clause */
+	append_string_object(stmt, "amname", get_am_name(opcForm->opcmethod));
+
+	/*
+	 * Add the initial item list.  Note we always add the STORAGE clause, even
+	 * when it is implicit in the original command.
+	 */
+	tmp = new_objtree_VA("STORAGE %{type}T", 0);
+	append_object_object(tmp, "type",
+						 new_objtree_for_type(opcForm->opckeytype != InvalidOid ?
+											  opcForm->opckeytype : opcForm->opcintype,
+											  -1));
+	list = list_make1(new_object_object(tmp));
+
+	/* Add the declared operators */
+	/* XXX this duplicates code in deparse_AlterOpFamily */
+	foreach(cell, cmd->d.createopc.operators)
+	{
+		OpFamilyMember *oper = lfirst(cell);
+		ObjTree	   *tmp;
+
+		tmp = new_objtree_VA("OPERATOR %{num}n %{operator}O(%{ltype}T, %{rtype}T) %{purpose}s",
+							 0);
+		append_integer_object(tmp, "num", oper->number);
+		append_object_object(tmp, "operator",
+							 new_objtree_for_qualname_id(OperatorRelationId,
+														 oper->object));
+		/* add the types */
+		append_object_object(tmp, "ltype",
+							 new_objtree_for_type(oper->lefttype, -1));
+		append_object_object(tmp, "rtype",
+							 new_objtree_for_type(oper->righttype, -1));
+		/* Add the FOR SEARCH / FOR ORDER BY clause */
+		if (oper->sortfamily == InvalidOid)
+			append_string_object(tmp, "purpose", "FOR SEARCH");
+		else
+		{
+			ObjTree	   *tmp2;
+
+			tmp2 = new_objtree_VA("FOR ORDER BY %{opfamily}D", 0);
+			append_object_object(tmp2, "opfamily",
+								 new_objtree_for_qualname_id(OperatorFamilyRelationId,
+															 oper->sortfamily));
+			append_object_object(tmp, "purpose", tmp2);
+		}
+
+		list = lappend(list, new_object_object(tmp));
+	}
+
+	/* Add the declared support functions */
+	foreach(cell, cmd->d.createopc.procedures)
+	{
+		OpFamilyMember *proc = lfirst(cell);
+		ObjTree	   *tmp;
+		HeapTuple	procTup;
+		Form_pg_proc procForm;
+		Oid		   *proargtypes;
+		List	   *arglist;
+		int			i;
+
+		tmp = new_objtree_VA("FUNCTION %{num}n (%{ltype}T, %{rtype}T) %{function}D(%{argtypes:, }T)", 0);
+		append_integer_object(tmp, "num", proc->number);
+		procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(proc->object));
+		if (!HeapTupleIsValid(procTup))
+			elog(ERROR, "cache lookup failed for procedure %u", proc->object);
+		procForm = (Form_pg_proc) GETSTRUCT(procTup);
+
+		append_object_object(tmp, "function",
+							 new_objtree_for_qualname(procForm->pronamespace,
+													  NameStr(procForm->proname)));
+		proargtypes = procForm->proargtypes.values;
+		arglist = NIL;
+		for (i = 0; i < procForm->pronargs; i++)
+		{
+			ObjTree	   *arg;
+
+			arg = new_objtree_for_type(proargtypes[i], -1);
+			arglist = lappend(arglist, new_object_object(arg));
+		}
+		append_array_object(tmp, "argtypes", arglist);
+
+		ReleaseSysCache(procTup);
+		/* Add the types */
+		append_object_object(tmp, "ltype",
+							 new_objtree_for_type(proc->lefttype, -1));
+		append_object_object(tmp, "rtype",
+							 new_objtree_for_type(proc->righttype, -1));
+
+		list = lappend(list, new_object_object(tmp));
+	}
+
+	append_array_object(stmt, "items", list);
+
+	ReleaseSysCache(opfTup);
+	ReleaseSysCache(opcTup);
+
+	return stmt;
+}
+
+static ObjTree *
 deparse_CreateOpFamily(Oid objectId, Node *parsetree)
 {
 	HeapTuple   opfTup;
@@ -5302,81 +5473,6 @@ deparse_CreateOpFamily(Oid objectId, Node *parsetree)
 	ReleaseSysCache(opfTup);
 
 	return copfStmt;
-}
-
-static ObjTree *
-deparse_AlterOpFamilyStmt(Oid objectId, Node *parsetree)
-{
-#ifdef NOT_USED
-	AlterOpFamilyStmt *node = (AlterOpFamilyStmt *) parsetree;
-	ObjTree	   *alterStmt;
-	ObjTree	   *tmp;
-	char	   *fmt;
-	HeapTuple	opftup;
-	Oid			amoid;
-	Relation	opfrel;
-	List	   *list;
-	ListCell   *cell;
-
-	/*
-	 * XXX We can't support this case until we get more info from the command.
-	 * The issue is that from the parse node we don't have enough info about
-	 * the added/dropped operators and functions.  We need a new
-	 * StashedCommandType to implement this, so that we can return the OIDs of
-	 * the affected opfamily members and perhaps their strategy numbers.
-	 */
-	elog(ERROR, "unsupported deparse of ALTER OPERATOR FAMILY ADD/DROP");
-
-	opfrel = heap_open(OperatorFamilyRelationId, AccessShareLock);
-	opftup = get_catalog_object_by_oid(opfrel, objectId);
-	if (!HeapTupleIsValid(opftup))
-		elog(ERROR, "cache lookup failed for operator family %u", objectId);
-	amoid = ((Form_pg_opfamily) GETSTRUCT(opftup))->opfmethod;
-	amtup = SearchSysCache1(AMOID, ObjectIdGetDatum(amoid));
-	if (!HeapTupleIsValid(amtup))
-		elog(ERROR, "cache lookup failed for access method %u", amoid);
-
-	fmt = psprintf("ALTER OPERATOR FAMILY %%{identity}D USING %%{amname}I %s %%{items}s",
-				   node->isDrop ? "DROP" : "ADD");
-	alterStmt = new_objtree_VA(fmt, 1,
-							   "identity", ObjTypeObject,
-							   new_objtree_for_qualname_id(OperatorFamilyRelationId,
-														   objectId),
-							   "amname", ObjTypeString,
-							   pstrdup(NameStr(((Form_pg_am) GETSTRUCT(amtup))->amname)));
-
-	ReleaseSysCache(opftup);
-	heap_close(opfrel, AccessShareLock);
-
-	list = NIL;
-	foreach (cell, node->items)
-	{
-		CreateOpClassItem *item = lfirst(cell);
-
-		switch (item->itemtype)
-		{
-			case OPCLASS_ITEM_OPERATOR:
-				tmp = new_objtree_VA("OPERATOR %{num}n %{oper}s %{purpose}s", 0);
-				append_integer_object(tmp, "num", item->number);
-				append_object_object(tmp, "oper", "someoper");
-				append_string_object(tmp, "purpose",
-									 item->order_family ? "FOR ORDER BY xyz" : "FOR SEARCH");
-				break;
-			case OPCLASS_ITEM_FUNCTION:
-				tmp = new_objtree_VA("FUNCTION %{num}n %{function}s", 0);
-				append_integer_object(tmp, "num", item->number);
-				break;
-			case OPCLASS_ITEM_STORAGETYPE:
-				elog(ERROR, "ALTER OPERATOR FAMILY does not support STORAGE");
-				break;
-		}
-		list = lappend(list, new_object_object(tmp));
-	}
-	append_array_object(alterStmt, "items", list);
-
-	return alterStmt;
-#endif
-	return NULL;
 }
 
 static ObjTree *
@@ -5567,6 +5663,260 @@ deparse_GrantStmt(StashedCommand *cmd)
 	}
 
 	return grantStmt;
+}
+
+/*
+ * Deparse an ALTER OPERATOR FAMILY ADD/DROP command.
+ */
+static ObjTree *
+deparse_AlterOpFamily(StashedCommand *cmd)
+{
+	ObjTree	   *alterOpFam;
+	AlterOpFamilyStmt *stmt = (AlterOpFamilyStmt *) cmd->parsetree;
+	HeapTuple	ftp;
+	Form_pg_opfamily opfForm;
+	List	   *list;
+	ListCell   *cell;
+
+	ftp = SearchSysCache1(OPFAMILYOID,
+						  ObjectIdGetDatum(cmd->d.opfam.opfamOid));
+	if (!HeapTupleIsValid(ftp))
+		elog(ERROR, "cache lookup failed for operator family %u", cmd->d.opfam.opfamOid);
+	opfForm = (Form_pg_opfamily) GETSTRUCT(ftp);
+
+	if (!stmt->isDrop)
+		alterOpFam = new_objtree_VA("ALTER OPERATOR FAMILY %{identity}D "
+									"USING %{amname}I ADD %{items:, }s", 0);
+	else
+		alterOpFam = new_objtree_VA("ALTER OPERATOR FAMILY %{identity}D "
+									"USING %{amname}I DROP %{items:, }s", 0);
+	append_object_object(alterOpFam, "identity",
+						 new_objtree_for_qualname(opfForm->opfnamespace,
+												  NameStr(opfForm->opfname)));
+	append_string_object(alterOpFam, "amname", stmt->amname);
+
+	list = NIL;
+	foreach(cell, cmd->d.opfam.operators)
+	{
+		OpFamilyMember *oper = lfirst(cell);
+		ObjTree	   *tmp;
+
+		if (!stmt->isDrop)
+			tmp = new_objtree_VA("OPERATOR %{num}n %{operator}O(%{ltype}T, %{rtype}T) %{purpose}s",
+								 0);
+		else
+			tmp = new_objtree_VA("OPERATOR %{num}n (%{ltype}T, %{rtype}T)",
+								 0);
+		append_integer_object(tmp, "num", oper->number);
+
+		/* Add the operator name; the DROP case doesn't have this */
+		if (!stmt->isDrop)
+		{
+			append_object_object(tmp, "operator",
+								 new_objtree_for_qualname_id(OperatorRelationId,
+															 oper->object));
+		}
+
+		/* Add the types */
+		append_object_object(tmp, "ltype",
+							 new_objtree_for_type(oper->lefttype, -1));
+		append_object_object(tmp, "rtype",
+							 new_objtree_for_type(oper->righttype, -1));
+
+		/* Add the FOR SEARCH / FOR ORDER BY clause; not in the DROP case */
+		if (!stmt->isDrop)
+		{
+			if (oper->sortfamily == InvalidOid)
+				append_string_object(tmp, "purpose", "FOR SEARCH");
+			else
+			{
+				ObjTree	   *tmp2;
+
+				tmp2 = new_objtree_VA("FOR ORDER BY %{opfamily}D", 0);
+				append_object_object(tmp2, "opfamily",
+									 new_objtree_for_qualname_id(OperatorFamilyRelationId,
+																 oper->sortfamily));
+				append_object_object(tmp, "purpose", tmp2);
+			}
+		}
+
+		list = lappend(list, new_object_object(tmp));
+	}
+
+	foreach(cell, cmd->d.opfam.procedures)
+	{
+		OpFamilyMember *proc = lfirst(cell);
+		ObjTree	   *tmp;
+
+		if (!stmt->isDrop)
+			tmp = new_objtree_VA("FUNCTION %{num}n (%{ltype}T, %{rtype}T) %{function}D(%{argtypes:, }T)", 0);
+		else
+			tmp = new_objtree_VA("FUNCTION %{num}n (%{ltype}T, %{rtype}T)", 0);
+		append_integer_object(tmp, "num", proc->number);
+
+		/* Add the function name and arg types; the DROP case doesn't have this */
+		if (!stmt->isDrop)
+		{
+			HeapTuple	procTup;
+			Form_pg_proc procForm;
+			Oid		   *proargtypes;
+			List	   *arglist;
+			int			i;
+
+			procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(proc->object));
+			if (!HeapTupleIsValid(procTup))
+				elog(ERROR, "cache lookup failed for procedure %u", proc->object);
+			procForm = (Form_pg_proc) GETSTRUCT(procTup);
+
+			append_object_object(tmp, "function",
+								 new_objtree_for_qualname(procForm->pronamespace,
+														  NameStr(procForm->proname)));
+			proargtypes = procForm->proargtypes.values;
+			arglist = NIL;
+			for (i = 0; i < procForm->pronargs; i++)
+			{
+				ObjTree	   *arg;
+
+				arg = new_objtree_for_type(proargtypes[i], -1);
+				arglist = lappend(arglist, new_object_object(arg));
+			}
+			append_array_object(tmp, "argtypes", arglist);
+
+			ReleaseSysCache(procTup);
+		}
+
+		/* Add the types */
+		append_object_object(tmp, "ltype",
+							 new_objtree_for_type(proc->lefttype, -1));
+		append_object_object(tmp, "rtype",
+							 new_objtree_for_type(proc->righttype, -1));
+
+		list = lappend(list, new_object_object(tmp));
+	}
+
+	append_array_object(alterOpFam, "items", list);
+
+	ReleaseSysCache(ftp);
+
+	return alterOpFam;
+}
+
+static ObjTree *
+deparse_AlterDefaultPrivilegesStmt(StashedCommand *cmd)
+{
+	ObjTree	   *alterStmt;
+	AlterDefaultPrivilegesStmt *stmt = (AlterDefaultPrivilegesStmt *) cmd->parsetree;
+	List	   *roles = NIL;
+	List	   *schemas = NIL;
+	List	   *grantees;
+	List	   *privs;
+	ListCell   *cell;
+	ObjTree	   *tmp;
+	ObjTree	   *grant;
+
+	alterStmt = new_objtree_VA("ALTER DEFAULT PRIVILEGES %{in_schema}s "
+							   "%{for_roles}s %{grant}s", 0);
+
+	/* Scan the parse node to dig out the FOR ROLE and IN SCHEMA clauses */
+	foreach(cell, stmt->options)
+	{
+		DefElem	   *opt = (DefElem *) lfirst(cell);
+		ListCell   *cell2;
+
+		Assert(IsA(opt, DefElem));
+		Assert(IsA(opt->arg, List));
+		if (strcmp(opt->defname, "roles") == 0)
+		{
+			foreach(cell2, (List *) opt->arg)
+			{
+				Value  *val = lfirst(cell2);
+
+				roles = lappend(roles,
+								new_string_object(strVal(val)));
+			}
+		}
+		else if (strcmp(opt->defname, "schemas") == 0)
+		{
+			foreach(cell2, (List *) opt->arg)
+			{
+				Value  *val = lfirst(cell2);
+
+				schemas = lappend(schemas,
+								  new_string_object(strVal(val)));
+			}
+		}
+	}
+
+	/* Add the FOR ROLE clause, if any */
+	tmp = new_objtree_VA("FOR ROLE %{roles:, }I", 0);
+	append_array_object(tmp, "roles", roles);
+	if (roles == NIL)
+		append_bool_object(tmp, "present", false);
+	append_object_object(alterStmt, "for_roles", tmp);
+
+	/* Add the IN SCHEMA clause, if any */
+	tmp = new_objtree_VA("IN SCHEMA %{schemas:, }I", 0);
+	append_array_object(tmp, "schemas", schemas);
+	if (schemas == NIL)
+		append_bool_object(tmp, "present", false);
+	append_object_object(alterStmt, "in_schema", tmp);
+
+	/* Add the GRANT subcommand */
+	if (stmt->action->is_grant)
+		grant = new_objtree_VA("GRANT %{privileges:, }s ON %{target}s "
+							   "TO %{grantees:, }I %{grant_option}s", 0);
+	else
+		grant = new_objtree_VA("REVOKE %{grant_option}s %{privileges:, }s "
+							   "ON %{target}s FROM %{grantees:, }I", 0);
+
+	/* add the GRANT OPTION clause */
+	tmp = new_objtree_VA(stmt->action->is_grant ?
+						   "WITH GRANT OPTION" : "GRANT OPTION FOR",
+						   1, "present", ObjTypeBool,
+						   stmt->action->grant_option);
+	append_object_object(grant, "grant_option", tmp);
+
+	/* add the target object type */
+	append_string_object(grant, "target", cmd->d.defprivs.objtype);
+
+	/* add the grantee list */
+	grantees = NIL;
+	foreach(cell, stmt->action->grantees)
+	{
+		RoleSpec   *spec = (RoleSpec *) lfirst(cell);
+		char	   *role = spec->roletype == ROLESPEC_PUBLIC ? "PUBLIC" :
+			get_rolespec_name((Node *) spec);
+
+		grantees = lappend(grantees, new_string_object(role));
+	}
+	append_array_object(grant, "grantees", grantees);
+
+	/*
+	 * Add the privileges list.  This uses the parser struct, as opposed to the
+	 * InternalGrant format used by GRANT.  There are enough other differences
+	 * that this doesn't seem worth improving.
+	 */
+	if (stmt->action->privileges == NIL)
+		privs = list_make1(new_string_object("ALL PRIVILEGES"));
+	else
+	{
+		privs = NIL;
+
+		foreach(cell, stmt->action->privileges)
+		{
+			AccessPriv *priv = lfirst(cell);
+
+			Assert(priv->cols == NIL);
+			privs = lappend(privs,
+							new_string_object(priv->priv_name));
+		}
+	}
+
+	append_array_object(grant, "privileges", privs);
+
+	append_object_object(alterStmt, "grant", grant);
+
+	return alterStmt;
 }
 
 static ObjTree *
@@ -5891,7 +6241,8 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 			case AT_ChangeOwner:
 				tmp = new_objtree_VA("OWNER TO %{owner}I",
 									 2, "type", ObjTypeString, "change owner",
-									 "owner",  ObjTypeString, subcmd->name);
+									 "owner",  ObjTypeString,
+									 get_rolespec_name(subcmd->newowner));
 				subcmds = lappend(subcmds, new_object_object(tmp));
 				break;
 
@@ -6160,7 +6511,8 @@ deparse_simple_command(StashedCommand *cmd)
 
 			/* other local objects */
 		case T_DefineStmt:
-			command = deparse_DefineStmt(objectId, parsetree);
+			command = deparse_DefineStmt(objectId, parsetree,
+										 cmd->d.simple.secondaryObject);
 			break;
 
 		case T_IndexStmt:
@@ -6283,7 +6635,8 @@ deparse_simple_command(StashedCommand *cmd)
 			break;
 
 		case T_CreateOpClassStmt:
-			elog(ERROR, "unimplemented deparse of %s", CreateCommandTag(parsetree));
+			/* handled elsewhere */
+			elog(ERROR, "unexpected command type %s", CreateCommandTag(parsetree));
 			break;
 
 		case T_CreateOpFamilyStmt:
@@ -6291,7 +6644,8 @@ deparse_simple_command(StashedCommand *cmd)
 			break;
 
 		case T_AlterOpFamilyStmt:
-			command = deparse_AlterOpFamilyStmt(objectId, parsetree);
+			/* handled elsewhere */
+			elog(ERROR, "unexpected command type %s", CreateCommandTag(parsetree));
 			break;
 
 		case T_AlterTSDictionaryStmt:
@@ -6336,7 +6690,8 @@ deparse_simple_command(StashedCommand *cmd)
 			break;
 
 		case T_AlterDefaultPrivilegesStmt:
-			elog(ERROR, "unimplemented deparse of %s", CreateCommandTag(parsetree));
+			/* handled elsewhere */
+			elog(ERROR, "unexpected command type %s", CreateCommandTag(parsetree));
 			break;
 
 		case T_CreatePolicyStmt:	/* CREATE POLICY */
@@ -6344,7 +6699,7 @@ deparse_simple_command(StashedCommand *cmd)
 			break;
 
 		case T_AlterPolicyStmt:		/* ALTER POLICY */
-			elog(ERROR, "unimplemented deparse of %s", CreateCommandTag(parsetree));
+			command = deparse_AlterPolicyStmt(objectId, parsetree);
 			break;
 
 		case T_SecLabelStmt:
@@ -6414,6 +6769,15 @@ deparse_utility_command(StashedCommand *cmd)
 			break;
 		case SCT_Grant:
 			tree = deparse_GrantStmt(cmd);
+			break;
+		case SCT_AlterOpFamily:
+			tree = deparse_AlterOpFamily(cmd);
+			break;
+		case SCT_CreateOpClass:
+			tree = deparse_CreateOpClassStmt(cmd);
+			break;
+		case SCT_AlterDefaultPrivileges:
+			tree = deparse_AlterDefaultPrivilegesStmt(cmd);
 			break;
 		default:
 			elog(ERROR, "unexpected deparse node type %d", cmd->type);

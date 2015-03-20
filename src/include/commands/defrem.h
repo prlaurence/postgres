@@ -31,7 +31,7 @@ extern ObjectAddress DefineIndex(Oid relationId,
 			bool quiet);
 extern Oid	ReindexIndex(RangeVar *indexRelation);
 extern Oid	ReindexTable(RangeVar *relation);
-extern Oid ReindexObject(const char *databaseName, ReindexObjectType kind);
+extern void ReindexMultipleTables(const char *objectName, ReindexObjectType objectKind);
 extern char *makeObjectName(const char *name1, const char *name2,
 			   const char *label);
 extern char *ChooseRelationName(const char *name1, const char *name2,
@@ -87,6 +87,7 @@ extern void IsThereOpClassInNamespace(const char *opcname, Oid opcmethod,
 extern void IsThereOpFamilyInNamespace(const char *opfname, Oid opfmethod,
 						   Oid opfnamespace);
 extern Oid	get_am_oid(const char *amname, bool missing_ok);
+extern char *get_am_name(Oid amOid);
 extern Oid	get_opclass_oid(Oid amID, List *opclassname, bool missing_ok);
 extern Oid	get_opfamily_oid(Oid amID, List *opfamilyname, bool missing_ok);
 
@@ -101,7 +102,8 @@ extern ObjectAddress AlterTSDictionary(AlterTSDictionaryStmt *stmt);
 extern ObjectAddress DefineTSTemplate(List *names, List *parameters);
 extern void RemoveTSTemplateById(Oid tmplId);
 
-extern ObjectAddress DefineTSConfiguration(List *names, List *parameters);
+extern ObjectAddress DefineTSConfiguration(List *names, List *parameters,
+					  ObjectAddress *copied);
 extern void RemoveTSConfigurationById(Oid cfgId);
 extern ObjectAddress AlterTSConfiguration(AlterTSConfigurationStmt *stmt);
 

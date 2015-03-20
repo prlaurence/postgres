@@ -753,9 +753,10 @@ standard_ProcessUtility(Node *parsetree,
 						 * intended effect!
 						 */
 						PreventTransactionChain(isTopLevel,
-												(stmt->kind == REINDEX_OBJECT_SCHEMA) ?
-												"REINDEX SCHEMA" : "REINDEX DATABASE");
-						ReindexObject(stmt->name, stmt->kind);
+												(stmt->kind == REINDEX_OBJECT_SCHEMA) ? "REINDEX SCHEMA" :
+												(stmt->kind == REINDEX_OBJECT_SYSTEM) ? "REINDEX SYSTEM" :
+												"REINDEX DATABASE");
+						ReindexMultipleTables(stmt->name, stmt->kind);
 						break;
 					default:
 						elog(ERROR, "unrecognized object type: %d",
@@ -940,7 +941,7 @@ ProcessUtilitySlow(Node *parsetree,
 							/* Create the table itself */
 							address = DefineRelation((CreateStmt *) stmt,
 													 RELKIND_RELATION,
-												   	 InvalidOid, NULL);
+													 InvalidOid, NULL);
 							EventTriggerStashCommand(address, NULL, stmt);
 
 							/*
@@ -991,16 +992,16 @@ ProcessUtilitySlow(Node *parsetree,
 										   NULL);
 						}
 
-						/*
-						 * The multiple commands generated here are stashed
-						 * individually, so disable collection below.
-						 */
-						commandStashed = true;
-
 						/* Need CCI between commands */
 						if (lnext(l) != NULL)
 							CommandCounterIncrement();
 					}
+
+					/*
+					 * The multiple commands generated here are stashed
+					 * individually, so disable collection below.
+					 */
+					commandStashed = true;
 				}
 				break;
 
@@ -1180,7 +1181,8 @@ ProcessUtilitySlow(Node *parsetree,
 						case OBJECT_TSCONFIGURATION:
 							Assert(stmt->args == NIL);
 							address = DefineTSConfiguration(stmt->defnames,
-															 stmt->definition);
+															 stmt->definition,
+															 &secondaryObject);
 							break;
 						case OBJECT_COLLATION:
 							Assert(stmt->args == NIL);
@@ -1396,6 +1398,8 @@ ProcessUtilitySlow(Node *parsetree,
 
 			case T_CreateOpClassStmt:
 				address = DefineOpClass((CreateOpClassStmt *) parsetree);
+				/* command is stashed in DefineOpClass */
+				commandStashed = true;
 				break;
 
 			case T_CreateOpFamilyStmt:
@@ -1404,7 +1408,7 @@ ProcessUtilitySlow(Node *parsetree,
 
 			case T_AlterOpFamilyStmt:
 				AlterOpFamily((AlterOpFamilyStmt *) parsetree);
-				/* commands are stashed in AlterOpFamily */ /* FIXME a lie actually */
+				/* commands are stashed in AlterOpFamily */
 				commandStashed = true;
 				break;
 
@@ -1460,7 +1464,8 @@ ProcessUtilitySlow(Node *parsetree,
 
 			case T_AlterDefaultPrivilegesStmt:
 				ExecAlterDefaultPrivilegesStmt((AlterDefaultPrivilegesStmt *) parsetree);
-				/* XXX FIXME WTF? */
+				EventTriggerStashAlterDefPrivs((AlterDefaultPrivilegesStmt *) parsetree);
+				commandStashed = true;
 				break;
 
 			case T_CreatePolicyStmt:	/* CREATE POLICY */
@@ -2503,26 +2508,22 @@ CreateCommandTag(Node *parsetree)
 						else if (stmt->rowMarks != NIL)
 						{
 							/* not 100% but probably close enough */
-							switch (((PlanRowMark *) linitial(stmt->rowMarks))->markType)
+							switch (((PlanRowMark *) linitial(stmt->rowMarks))->strength)
 							{
-								case ROW_MARK_EXCLUSIVE:
-									tag = "SELECT FOR UPDATE";
-									break;
-								case ROW_MARK_NOKEYEXCLUSIVE:
-									tag = "SELECT FOR NO KEY UPDATE";
-									break;
-								case ROW_MARK_SHARE:
-									tag = "SELECT FOR SHARE";
-									break;
-								case ROW_MARK_KEYSHARE:
+								case LCS_FORKEYSHARE:
 									tag = "SELECT FOR KEY SHARE";
 									break;
-								case ROW_MARK_REFERENCE:
-								case ROW_MARK_COPY:
-									tag = "SELECT";
+								case LCS_FORSHARE:
+									tag = "SELECT FOR SHARE";
+									break;
+								case LCS_FORNOKEYUPDATE:
+									tag = "SELECT FOR NO KEY UPDATE";
+									break;
+								case LCS_FORUPDATE:
+									tag = "SELECT FOR UPDATE";
 									break;
 								default:
-									tag = "???";
+									tag = "SELECT";
 									break;
 							}
 						}
