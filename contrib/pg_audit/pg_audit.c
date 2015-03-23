@@ -197,7 +197,7 @@ static bool statementLogged = false;
 
 /*
  * Respond to callbacks registered with MemoryContextRegisterResetCallback().
- * Removes the event(s) off the stack that have become obsolete once the 
+ * Removes the event(s) off the stack that have become obsolete once the
  * MemoryContext has been freed.  The callback should always be freeing the top
  * of the stack, but the code is tolerant of out-of-order callbacks.
  */
@@ -220,7 +220,7 @@ stack_free(void *stackFree)
 			{
 				/* Reset internal statement in case of error */
 				internalStatement = false;
-				
+
 				/* Reset sub statement total */
 				substatementTotal = 0;
 
@@ -267,7 +267,7 @@ stack_push()
 	else
 		stackItem->next = NULL;
 
-	/* 
+	/*
 	 * Setup a callback in case an error happens.  stack_free() will truncate
 	 * the stack at this item.
 	 */
@@ -447,7 +447,7 @@ log_audit_event(AuditEventStackItem *stackItem)
 			statementTotal++;
 			statementLogged = true;
 		}
-		
+
 		stackItem->auditEvent.statementId = statementTotal;
 		stackItem->auditEvent.substatementId = ++substatementTotal;
 	}
@@ -748,7 +748,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 		/* We only care about tables, and can ignore subqueries etc. */
 		if (rte->rtekind != RTE_RELATION)
 			continue;
-		
+
 		found = true;
 
 		/*
