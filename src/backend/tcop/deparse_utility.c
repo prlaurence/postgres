@@ -79,6 +79,7 @@
 #include "rewrite/rewriteHandler.h"
 #include "tcop/deparse_utility.h"
 #include "tcop/utility.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/jsonb.h"
@@ -644,17 +645,22 @@ new_objtree_for_qualname_id(Oid classId, Oid objectId)
 	return qualified;
 }
 
+/*
+ * Helper routine for %{}R objects, with role specified by OID.  (ACL_ID_PUBLIC
+ * means to use "public").
+ */
 static ObjTree *
-new_objtree_for_role(Oid roleoid)
+new_objtree_for_role_id(Oid roleoid)
 {
-	ObjTree    *tmp;
+	ObjTree    *role;
 
-	if (roleoid == ACL_ID_PUBLIC)
-		tmp = new_objtree_VA("PUBLIC", 0);
-	else
+	role = new_objtree();
+	append_bool_object(role, "is_public", roleoid == ACL_ID_PUBLIC);
+
+	if (roleoid != ACL_ID_PUBLIC)
 	{
 		HeapTuple	roltup;
-		char	   *rolname;
+		char	   *rolename;
 
 		roltup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(roleoid));
 		if (!HeapTupleIsValid(roltup))
@@ -662,13 +668,49 @@ new_objtree_for_role(Oid roleoid)
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
 					 errmsg("role with OID %u does not exist", roleoid)));
 
-		tmp = new_objtree_VA("%{name}I", 0);
-		rolname = NameStr(((Form_pg_authid) GETSTRUCT(roltup))->rolname);
-		append_string_object(tmp, "name", pstrdup(rolname));
+		rolename = NameStr(((Form_pg_authid) GETSTRUCT(roltup))->rolname);
+		append_string_object(role, "rolename", pstrdup(rolename));
 		ReleaseSysCache(roltup);
 	}
 
-	return tmp;
+	return role;
+}
+
+/*
+ * Helper routine for %{}R objects, with role specified by name.
+ */
+static ObjTree *
+new_objtree_for_role(char *rolename)
+{
+	ObjTree	   *role;
+	bool		is_public;
+
+	role = new_objtree();
+	is_public = strcmp(rolename, "public") == 0;
+	append_bool_object(role, "is_public", is_public);
+	if (!is_public)
+		append_string_object(role, "rolename", rolename);
+
+	return role;
+}
+
+/*
+ * Helper routine for %{}R objects, with role specified by RoleSpec node.
+ * Special values such as ROLESPEC_CURRENT_USER are expanded to their final
+ * names.
+ */
+static ObjTree *
+new_objtree_for_rolespec(RoleSpec *spec)
+{
+	ObjTree	   *role;
+
+	role = new_objtree();
+	append_bool_object(role, "is_public",
+					   spec->roletype == ROLESPEC_PUBLIC);
+	if (spec->roletype != ROLESPEC_PUBLIC)
+		append_string_object(role, "rolename", get_rolespec_name((Node *) spec));
+
+	return role;
 }
 
 /*
@@ -2071,11 +2113,11 @@ deparse_CreateUserMappingStmt(Oid objectId, Node *parsetree)
 
 	server = GetForeignServer(form->umserver);
 
-	createStmt = new_objtree_VA("CREATE USER MAPPING FOR %{role}s SERVER %{server}I "
+	createStmt = new_objtree_VA("CREATE USER MAPPING FOR %{role}R SERVER %{server}I "
 								"%{generic_options}s", 1,
 								"server", ObjTypeString, server->servername);
 
-	append_object_object(createStmt, "role", new_objtree_for_role(form->umuser));
+	append_object_object(createStmt, "role", new_objtree_for_role_id(form->umuser));
 
 	/* add an OPTIONS clause, if any */
 	append_object_object(createStmt, "generic_options",
@@ -2111,11 +2153,11 @@ deparse_AlterUserMappingStmt(Oid objectId, Node *parsetree)
 
 	server = GetForeignServer(form->umserver);
 
-	alterStmt = new_objtree_VA("ALTER USER MAPPING FOR %{role}s SERVER %{server}I "
+	alterStmt = new_objtree_VA("ALTER USER MAPPING FOR %{role}R SERVER %{server}I "
 								"%{generic_options}s", 1,
 								"server", ObjTypeString, server->servername);
 
-	append_object_object(alterStmt, "role", new_objtree_for_role(form->umuser));
+	append_object_object(alterStmt, "role", new_objtree_for_role_id(form->umuser));
 
 	/* add an OPTIONS clause, if any */
 	append_object_object(alterStmt, "generic_options",
@@ -3260,6 +3302,73 @@ deparse_CreateRangeStmt(Oid objectId, Node *parsetree)
 	heap_close(pg_range, RowExclusiveLock);
 
 	return range;
+}
+
+static ObjTree *
+deparse_CreatePLangStmt(Oid objectId, Node *parsetree)
+{
+	CreatePLangStmt *node = (CreatePLangStmt *) parsetree;
+	ObjTree	   *createLang;
+	ObjTree	   *tmp;
+	HeapTuple	langTup;
+	Form_pg_language langForm;
+
+
+	langTup = SearchSysCache1(LANGOID,
+							  ObjectIdGetDatum(objectId));
+	if (!HeapTupleIsValid(langTup))
+		elog(ERROR, "cache lookup failed for language %u", objectId);
+	langForm = (Form_pg_language) GETSTRUCT(langTup);
+
+	if (node->plhandler == NIL)
+		createLang =
+			new_objtree_VA("CREATE %{or_replace}s %{trusted}s PROCEDURAL LANGUAGE %{identity}I", 0);
+	else
+		createLang =
+			new_objtree_VA("CREATE %{or_replace}s %{trusted}s PROCEDURAL LANGUAGE %{identity}I "
+						   "HANDLER %{handler}D %{inline}s %{validator}s", 0);
+
+	append_string_object(createLang, "or_replace",
+						 node->replace ? "OR REPLACE" : "");
+	append_string_object(createLang, "identity", node->plname);
+	append_string_object(createLang, "trusted",
+						 langForm->lanpltrusted ? "TRUSTED" : "");
+
+	if (node->plhandler != NIL)
+	{
+		/* Add the HANDLER clause */
+		append_object_object(createLang, "handler",
+							 new_objtree_for_qualname_id(ProcedureRelationId,
+														 langForm->lanplcallfoid));
+
+		/* Add the INLINE clause, if any */
+		tmp = new_objtree_VA("INLINE %{handler_name}D", 0);
+		if (OidIsValid(langForm->laninline))
+		{
+			append_object_object(tmp, "handler_name",
+								 new_objtree_for_qualname_id(ProcedureRelationId,
+															 langForm->laninline));
+		}
+		else
+			append_bool_object(tmp, "present", false);
+		append_object_object(createLang, "inline", tmp);
+
+		/* Add the VALIDATOR clause, if any */
+		tmp = new_objtree_VA("VALIDATOR %{handler_name}D", 0);
+		if (OidIsValid(langForm->lanvalidator))
+		{
+			append_object_object(tmp, "handler_name",
+								 new_objtree_for_qualname_id(ProcedureRelationId,
+															 langForm->lanvalidator));
+		}
+		else
+			append_bool_object(tmp, "present", false);
+		append_object_object(createLang, "validator", tmp);
+	}
+
+	ReleaseSysCache(langTup);
+
+	return createLang;
 }
 
 static ObjTree *
@@ -5050,7 +5159,7 @@ add_policy_clauses(ObjTree *policyStmt, Oid policyOid, List *roles,
 	 * Add the "TO role" clause, if any.  In the CREATE case, it always
 	 * contains at least PUBLIC, but in the ALTER case it might be empty.
 	 */
-	tmp = new_objtree_VA("TO %{role:, }I", 0);
+	tmp = new_objtree_VA("TO %{role:, }R", 0);
 	if (roles)
 	{
 		List   *list = NIL;
@@ -5059,10 +5168,9 @@ add_policy_clauses(ObjTree *policyStmt, Oid policyOid, List *roles,
 		foreach (cell, roles)
 		{
 			RoleSpec   *spec = (RoleSpec *) lfirst(cell);
-			char	   *role = spec->roletype == ROLESPEC_PUBLIC ? "PUBLIC" :
-				get_rolespec_name((Node *) spec);
 
-			list = lappend(list, new_string_object(role));
+			list = lappend(list,
+						   new_object_object(new_objtree_for_rolespec(spec)));
 		}
 		append_array_object(tmp, "role", list);
 	}
@@ -5544,11 +5652,11 @@ deparse_GrantStmt(StashedCommand *cmd)
 	/* GRANT TO or REVOKE FROM */
 	if (istmt->is_grant)
 		fmt = psprintf("GRANT %%{privileges:, }s ON %s %%{privtarget:, }s "
-					   "TO %%{grantees:, }s %%{grant_option}s",
+					   "TO %%{grantees:, }R %%{grant_option}s",
 					   objtype);
 	else
 		fmt = psprintf("REVOKE %%{grant_option}s %%{privileges:, }s ON %s %%{privtarget:, }s "
-					   "FROM %%{grantees:, }s %%{cascade}s",
+					   "FROM %%{grantees:, }R %%{cascade}s",
 					   objtype);
 
 	grantStmt = new_objtree_VA(fmt, 0);
@@ -5641,7 +5749,7 @@ deparse_GrantStmt(StashedCommand *cmd)
 	{
 		Oid		grantee = lfirst_oid(cell);
 
-		tmp = new_objtree_for_role(grantee);
+		tmp = new_objtree_for_role_id(grantee);
 		list = lappend(list, new_object_object(tmp));
 	}
 	append_array_object(grantStmt, "grantees", list);
@@ -5830,9 +5938,9 @@ deparse_AlterDefaultPrivilegesStmt(StashedCommand *cmd)
 			foreach(cell2, (List *) opt->arg)
 			{
 				Value  *val = lfirst(cell2);
+				ObjTree *obj = new_objtree_for_role(strVal(val));
 
-				roles = lappend(roles,
-								new_string_object(strVal(val)));
+				roles = lappend(roles, new_object_object(obj));
 			}
 		}
 		else if (strcmp(opt->defname, "schemas") == 0)
@@ -5848,7 +5956,7 @@ deparse_AlterDefaultPrivilegesStmt(StashedCommand *cmd)
 	}
 
 	/* Add the FOR ROLE clause, if any */
-	tmp = new_objtree_VA("FOR ROLE %{roles:, }I", 0);
+	tmp = new_objtree_VA("FOR ROLE %{roles:, }R", 0);
 	append_array_object(tmp, "roles", roles);
 	if (roles == NIL)
 		append_bool_object(tmp, "present", false);
@@ -5864,10 +5972,10 @@ deparse_AlterDefaultPrivilegesStmt(StashedCommand *cmd)
 	/* Add the GRANT subcommand */
 	if (stmt->action->is_grant)
 		grant = new_objtree_VA("GRANT %{privileges:, }s ON %{target}s "
-							   "TO %{grantees:, }I %{grant_option}s", 0);
+							   "TO %{grantees:, }R %{grant_option}s", 0);
 	else
 		grant = new_objtree_VA("REVOKE %{grant_option}s %{privileges:, }s "
-							   "ON %{target}s FROM %{grantees:, }I", 0);
+							   "ON %{target}s FROM %{grantees:, }R", 0);
 
 	/* add the GRANT OPTION clause */
 	tmp = new_objtree_VA(stmt->action->is_grant ?
@@ -5884,10 +5992,9 @@ deparse_AlterDefaultPrivilegesStmt(StashedCommand *cmd)
 	foreach(cell, stmt->action->grantees)
 	{
 		RoleSpec   *spec = (RoleSpec *) lfirst(cell);
-		char	   *role = spec->roletype == ROLESPEC_PUBLIC ? "PUBLIC" :
-			get_rolespec_name((Node *) spec);
+		ObjTree	   *obj = new_objtree_for_rolespec(spec);
 
-		grantees = lappend(grantees, new_string_object(role));
+		grantees = lappend(grantees, new_object_object(obj));
 	}
 	append_array_object(grant, "grantees", grantees);
 
@@ -5994,10 +6101,6 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 				subcmds = lappend(subcmds, new_object_object(tmp));
 				break;
 
-			case AT_DropColumnRecurse:
-			case AT_ValidateConstraintRecurse:
-			case AT_DropConstraintRecurse:
-			case AT_AddOidsRecurse:
 			case AT_AddIndexConstraint:
 			case AT_ReAddIndex:
 			case AT_ReAddConstraint:
@@ -6080,11 +6183,8 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 				subcmds = lappend(subcmds, new_object_object(tmp));
 				break;
 
+			case AT_DropColumnRecurse:
 			case AT_DropColumn:
-				/*
-				 * FIXME -- this command is also reported by sql_drop. Should
-				 * we remove it from here?
-				 */
 				fmtstr = psprintf("DROP %s %%{column}I %%{cascade}s",
 								  istype ? "ATTRIBUTE" : "COLUMN");
 				tmp = new_objtree_VA(fmtstr, 2,
@@ -6144,9 +6244,27 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 				break;
 
 			case AT_AlterConstraint:
-				elog(ERROR, "unimplemented deparse of ALTER TABLE ALTER CONSTRAINT");
+				{
+					Oid		constrOid = substashed->oid;
+					Constraint *c = (Constraint *) subcmd->def;
+
+					/* if no constraint was altered, silently skip it */
+					if (!OidIsValid(constrOid))
+						break;
+
+					Assert(IsA(c, Constraint));
+					tmp = new_objtree_VA("ALTER CONSTRAINT %{name}I %{deferrable}s %{init_deferred}s",
+										 2, "type", ObjTypeString, "alter constraint",
+										 "name", ObjTypeString, get_constraint_name(constrOid));
+					append_string_object(tmp, "deferrable", c->deferrable ?
+										 "DEFERRABLE" : "NOT DEFERRABLE");
+					append_string_object(tmp, "init_deferred", c->initdeferred ?
+										 "INITIALLY DEFERRED" : "INITIALLY IMMEDIATE");
+					subcmds = lappend(subcmds, new_object_object(tmp));
+				}
 				break;
 
+			case AT_ValidateConstraintRecurse:
 			case AT_ValidateConstraint:
 				tmp = new_objtree_VA("VALIDATE CONSTRAINT %{constraint}I", 2,
 									 "type", ObjTypeString, "validate constraint",
@@ -6154,11 +6272,8 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 				subcmds = lappend(subcmds, new_object_object(tmp));
 				break;
 
+			case AT_DropConstraintRecurse:
 			case AT_DropConstraint:
-				/*
-				 * FIXME -- this command is also reported by sql_drop. Should
-				 * we remove it from here?
-				 */
 				tmp = new_objtree_VA("DROP CONSTRAINT %{constraint}I", 2,
 									 "type", ObjTypeString, "drop constraint",
 									 "constraint", ObjTypeString, subcmd->name);
@@ -6271,6 +6386,7 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 				subcmds = lappend(subcmds, new_object_object(tmp));
 				break;
 
+			case AT_AddOidsRecurse:
 			case AT_AddOids:
 				tmp = new_objtree_VA("SET WITH OIDS", 1,
 									 "type", ObjTypeString, "set with oids");
@@ -6377,8 +6493,8 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 				break;
 
 			case AT_AddInherit:
-				tmp = new_objtree_VA("ADD INHERIT %{parent}D",
-									 2, "type", ObjTypeString, "add inherit",
+				tmp = new_objtree_VA("INHERIT %{parent}D",
+									 2, "type", ObjTypeString, "inherit",
 									 "parent", ObjTypeObject,
 									 new_objtree_for_qualname_id(RelationRelationId,
 																 substashed->oid));
@@ -6619,7 +6735,7 @@ deparse_simple_command(StashedCommand *cmd)
 			break;
 
 		case T_CreatePLangStmt:
-			elog(ERROR, "unimplemented deparse of %s", CreateCommandTag(parsetree));
+			command = deparse_CreatePLangStmt(objectId, parsetree);
 			break;
 
 		case T_CreateDomainStmt:
