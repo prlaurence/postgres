@@ -430,6 +430,7 @@ log_audit_event(AuditEventStackItem *stackItem)
 {
 	const char *classname;
 	MemoryContext contextOld;
+	StringInfoData auditStr;
 
 	/* Check that this event should be logged. */
 	if (!log_check(&stackItem->auditEvent, &classname))
@@ -453,7 +454,6 @@ log_audit_event(AuditEventStackItem *stackItem)
 	}
 
 	/* Create the audit string */
-	StringInfoData auditStr;
 	initStringInfo(&auditStr);
 
 	append_valid_csv(&auditStr, stackItem->auditEvent.command);
@@ -1464,7 +1464,6 @@ pg_audit_sql_drop(PG_FUNCTION_ARGS)
 {
 	if (auditLogBitmap & LOG_DDL)
 	{
-		EventTriggerData *eventData;
 		int				  result, row;
 		TupleDesc		  spiTupDesc;
 		const char		 *query;
@@ -1486,9 +1485,6 @@ pg_audit_sql_drop(PG_FUNCTION_ARGS)
 						ALLOCSET_DEFAULT_INITSIZE,
 						ALLOCSET_DEFAULT_MAXSIZE);
 		contextOld = MemoryContextSwitchTo(contextQuery);
-
-		/* Get information about triggered events */
-		eventData = (EventTriggerData *) fcinfo->context;
 
 		/* Return objects affected by the drop statement */
 		query = "SELECT classid, objid, objsubid, UPPER(object_type),\n"
