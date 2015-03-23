@@ -37,7 +37,7 @@
 
       <para>
         Session logging is controlled by the <literal>pg_audit.log</literal>
-        GUC. There are five classes of commands that are recognized:
+        GUC. There are six classes of commands that are recognized:
 
         <itemizedlist>
           <listitem>
@@ -64,6 +64,11 @@
             <para>
               <literal>DDL</literal> - DDL, plus <literal>VACUUM</literal>,
               <literal>REINDEX</literal>, and <literal>ANALYZE</literal>.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              <literal>PARAMETER</literal> - Parameters that were passed for the statement.  Parameters immediately follow the statement text. 
             </para>
           </listitem>
           <listitem>
