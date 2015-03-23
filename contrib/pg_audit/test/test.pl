@@ -486,7 +486,7 @@ sub PgLogExecute
 		{
 			PgExecuteOnly($strSql);
 		};
-		
+
 		if ($@ && !$bExpectError)
 		{
 			confess $@;
@@ -507,7 +507,7 @@ sub PgLogExecute
 sub QuoteCSV
 {
 	my $strCSV = shift;
-	
+
 	if (defined($strCSV) &&
 		(index($strCSV, ',') >= 0 || index($strCSV, '"') > 0 ||
 		 index($strCSV, "\n") > 0 || index($strCSV, "\r") >= 0))
@@ -515,7 +515,7 @@ sub QuoteCSV
 		$strCSV =~ s/"/""/g;
 		$strCSV = "\"${strCSV}\"";
 	}
-	
+
 	return $strCSV;
 }
 
@@ -537,7 +537,7 @@ sub PgLogExpect
 
 	# Quote SQL if needs to be quoted
 	$strSql = QuoteCSV($strSql);
-	
+
 	if (defined($strParameter))
 	{
 		$strSql .= ",${strParameter}";
@@ -861,7 +861,7 @@ sub PgAuditGrantSet
 	my $strColumn = shift;
 
 	# Create SQL to set the grant
-	PgLogExecute(COMMAND_GRANT, "GRANT " . 
+	PgLogExecute(COMMAND_GRANT, "GRANT " .
 								(defined($strColumn) ?
 									lc(${strPrivilege}) ." (${strColumn})" :
 									uc(${strPrivilege})) .
@@ -1158,7 +1158,7 @@ PgLogExecute(COMMAND_CREATE_SCHEMA, $strSql, 'test');
 # Test COPY
 PgLogExecute(COMMAND_COPY_TO,
 			 "COPY pg_class to '" . abs_path($strTestPath) . "/class.out'");
-			 
+
 $strSql = 'CREATE  TABLE  test.pg_class  WITH (oids=OFF)   AS SELECT relname,' .
 		  ' relnamespace, reltype, reloftype, relowner, relam, relfilenode, ' .
 		  'reltablespace, relpages, reltuples, relallvisible, reltoastrelid, ' .
@@ -1259,7 +1259,7 @@ $strSql = 'do $$ ' .
 		  '	result record;' .
 		  'begin ' .
 		  '	for result in select id from test loop ' .
-		  '		insert into test (id) values (result.id + 100); ' . 
+		  '		insert into test (id) values (result.id + 100); ' .
 		  '	end loop; ' .
 		  'end; $$';
 

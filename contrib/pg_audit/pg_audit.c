@@ -1065,7 +1065,7 @@ log_function_execute(Oid objectId)
 								   NameStr(proc->proname));
 	ReleaseSysCache(proctup);
 
-	/* Log the function call */	
+	/* Log the function call */
 	stackItem->auditEvent.logStmtLevel = LOGSTMT_ALL;
 	stackItem->auditEvent.commandTag = T_DoStmt;
 	stackItem->auditEvent.command = COMMAND_EXECUTE;
@@ -1168,7 +1168,7 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 
 		/* Initialize command */
 		switch (queryDesc->operation)
-		{	
+		{
 			case CMD_SELECT:
 				stackItem->auditEvent.logStmtLevel = LOGSTMT_ALL;
 				stackItem->auditEvent.commandTag = T_SelectStmt;
@@ -1192,7 +1192,7 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 				stackItem->auditEvent.commandTag = T_DeleteStmt;
 				stackItem->auditEvent.command = COMMAND_DELETE;
 				break;
-				
+
 			default:
 				stackItem->auditEvent.logStmtLevel = LOGSTMT_ALL;
 				stackItem->auditEvent.commandTag = T_Invalid;
