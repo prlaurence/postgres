@@ -99,7 +99,7 @@ enum LogClass
 	/* Function execution */
 	LOG_FUNCTION = (1 << 2),
 
-	/* Function execution */
+	/* Statements not covered by another class */
 	LOG_MISC = (1 << 3),
 
 	/* Function execution */
@@ -1091,13 +1091,13 @@ log_object_access(ObjectAccessType access,
 {
 	switch (access)
 	{
-		/* Log execute. */
+		/* Log execute */
 		case OAT_FUNCTION_EXECUTE:
 			if (auditLogBitmap & LOG_FUNCTION)
 				log_function_execute(objectId);
 			break;
 
-		/* Log create. */
+		/* Log create */
 		case OAT_POST_CREATE:
 			if (auditLogBitmap & LOG_DDL)
 			{
@@ -1110,7 +1110,7 @@ log_object_access(ObjectAccessType access,
 			}
 			break;
 
-		/* Log alter. */
+		/* Log alter */
 		case OAT_POST_ALTER:
 			if (auditLogBitmap & LOG_DDL)
 			{
@@ -1123,7 +1123,7 @@ log_object_access(ObjectAccessType access,
 			}
 			break;
 
-		/* Log drop. */
+		/* Log drop */
 		case OAT_DROP:
 			if (auditLogBitmap & LOG_DDL)
 			{
