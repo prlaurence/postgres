@@ -21,235 +21,235 @@ use IPC::System::Simple qw(capture);
 ################################################################################
 use constant
 {
-	true  => 1,
-	false => 0
+    true  => 1,
+    false => 0
 };
 
 use constant
 {
-	CONTEXT_GLOBAL   => 'GLOBAL',
-	CONTEXT_DATABASE => 'DATABASE',
-	CONTEXT_ROLE	 => 'ROLE'
+    CONTEXT_GLOBAL   => 'GLOBAL',
+    CONTEXT_DATABASE => 'DATABASE',
+    CONTEXT_ROLE     => 'ROLE'
 };
 
 use constant
 {
-	CLASS			=> 'CLASS',
+    CLASS            => 'CLASS',
 
-	CLASS_DDL		=> 'DDL',
-	CLASS_FUNCTION	=> 'FUNCTION',
-	CLASS_MISC		=> 'MISC',
-	CLASS_PARAMETER => 'PARAMETER',
-	CLASS_READ		=> 'READ',
-	CLASS_WRITE		=> 'WRITE',
+    CLASS_DDL        => 'DDL',
+    CLASS_FUNCTION    => 'FUNCTION',
+    CLASS_MISC        => 'MISC',
+    CLASS_PARAMETER => 'PARAMETER',
+    CLASS_READ        => 'READ',
+    CLASS_WRITE        => 'WRITE',
 
-	CLASS_ALL		=> 'ALL',
-	CLASS_NONE		=> 'NONE'
+    CLASS_ALL        => 'ALL',
+    CLASS_NONE        => 'NONE'
 };
 
 use constant
 {
-	COMMAND						=> 'COMMAND',
-	COMMAND_LOG					=> 'COMMAND_LOG',
+    COMMAND                        => 'COMMAND',
+    COMMAND_LOG                    => 'COMMAND_LOG',
 
-	COMMAND_ANALYZE					=> 'ANALYZE',
-	COMMAND_ALTER_AGGREGATE			=> 'ALTER AGGREGATE',
-	COMMAND_ALTER_COLLATION			=> 'ALTER COLLATION',
-	COMMAND_ALTER_CONVERSION		=> 'ALTER CONVERSION',
-	COMMAND_ALTER_DATABASE			=> 'ALTER DATABASE',
-	COMMAND_ALTER_ROLE				=> 'ALTER ROLE',
-	COMMAND_ALTER_ROLE_SET			=> 'ALTER ROLE SET',
-	COMMAND_ALTER_TABLE				=> 'ALTER TABLE',
-	COMMAND_ALTER_TABLE_COLUMN		=> 'ALTER TABLE COLUMN',
-	COMMAND_ALTER_TABLE_INDEX		=> 'ALTER TABLE INDEX',
-	COMMAND_BEGIN					=> 'BEGIN',
-	COMMAND_CLOSE					=> 'CLOSE CURSOR',
-	COMMAND_COMMIT					=> 'COMMIT',
-	COMMAND_COPY					=> 'COPY',
-	COMMAND_COPY_TO					=> 'COPY TO',
-	COMMAND_COPY_FROM				=> 'COPY FROM',
-	COMMAND_CREATE_AGGREGATE		=> 'CREATE AGGREGATE',
-	COMMAND_CREATE_COLLATION		=> 'CREATE COLLATION',
-	COMMAND_CREATE_CONVERSION		=> 'CREATE CONVERSION',
-	COMMAND_CREATE_DATABASE			=> 'CREATE DATABASE',
-	COMMAND_CREATE_INDEX			=> 'CREATE INDEX',
-	COMMAND_DEALLOCATE				=> 'DEALLOCATE',
-	COMMAND_DECLARE_CURSOR			=> 'DECLARE CURSOR',
-	COMMAND_DO						=> 'DO',
-	COMMAND_DISCARD_ALL				=> 'DISCARD ALL',
-	COMMAND_CREATE_FUNCTION			=> 'CREATE FUNCTION',
-	COMMAND_CREATE_ROLE				=> 'CREATE ROLE',
-	COMMAND_CREATE_SCHEMA			=> 'CREATE SCHEMA',
-	COMMAND_CREATE_TABLE			=> 'CREATE TABLE',
-	COMMAND_CREATE_TABLE_AS			=> 'CREATE TABLE AS',
-	COMMAND_DROP_DATABASE			=> 'DROP DATABASE',
-	COMMAND_DROP_SCHEMA				=> 'DROP SCHEMA',
-	COMMAND_DROP_TABLE				=> 'DROP TABLE',
-	COMMAND_DROP_TABLE_CONSTRAINT	=> 'DROP TABLE CONSTRAINT',
-	COMMAND_DROP_TABLE_INDEX		=> 'DROP TABLE INDEX',
-	COMMAND_DROP_TABLE_TOAST		=> 'DROP TABLE TOAST',
-	COMMAND_DROP_TABLE_TYPE			=> 'DROP TABLE TYPE',
-	COMMAND_EXECUTE					=> 'EXECUTE',
-	COMMAND_EXECUTE_READ			=> 'EXECUTE READ',
-	COMMAND_EXECUTE_WRITE			=> 'EXECUTE WRITE',
-	COMMAND_EXECUTE_FUNCTION		=> 'EXECUTE FUNCTION',
-	COMMAND_EXPLAIN					=> 'EXPLAIN',
-	COMMAND_FETCH					=> 'FETCH',
-	COMMAND_GRANT					=> 'GRANT',
-	COMMAND_INSERT					=> 'INSERT',
-	# COMMAND_PARAMETER				=> 'PARAMETER',
-	# COMMAND_PARAMETER_READ			=> 'PARAMETER_READ',
-	# COMMAND_PARAMETER_WRITE			=> 'PARAMETER_WRITE',
-	COMMAND_PREPARE					=> 'PREPARE',
-	COMMAND_PREPARE_READ			=> 'PREPARE READ',
-	COMMAND_PREPARE_WRITE			=> 'PREPARE WRITE',
-	COMMAND_REVOKE					=> 'REVOKE',
-	COMMAND_SELECT					=> 'SELECT',
-	COMMAND_SET						=> 'SET',
-	COMMAND_UPDATE					=> 'UPDATE'
+    COMMAND_ANALYZE                    => 'ANALYZE',
+    COMMAND_ALTER_AGGREGATE            => 'ALTER AGGREGATE',
+    COMMAND_ALTER_COLLATION            => 'ALTER COLLATION',
+    COMMAND_ALTER_CONVERSION        => 'ALTER CONVERSION',
+    COMMAND_ALTER_DATABASE            => 'ALTER DATABASE',
+    COMMAND_ALTER_ROLE                => 'ALTER ROLE',
+    COMMAND_ALTER_ROLE_SET            => 'ALTER ROLE SET',
+    COMMAND_ALTER_TABLE                => 'ALTER TABLE',
+    COMMAND_ALTER_TABLE_COLUMN        => 'ALTER TABLE COLUMN',
+    COMMAND_ALTER_TABLE_INDEX        => 'ALTER TABLE INDEX',
+    COMMAND_BEGIN                    => 'BEGIN',
+    COMMAND_CLOSE                    => 'CLOSE CURSOR',
+    COMMAND_COMMIT                    => 'COMMIT',
+    COMMAND_COPY                    => 'COPY',
+    COMMAND_COPY_TO                    => 'COPY TO',
+    COMMAND_COPY_FROM                => 'COPY FROM',
+    COMMAND_CREATE_AGGREGATE        => 'CREATE AGGREGATE',
+    COMMAND_CREATE_COLLATION        => 'CREATE COLLATION',
+    COMMAND_CREATE_CONVERSION        => 'CREATE CONVERSION',
+    COMMAND_CREATE_DATABASE            => 'CREATE DATABASE',
+    COMMAND_CREATE_INDEX            => 'CREATE INDEX',
+    COMMAND_DEALLOCATE                => 'DEALLOCATE',
+    COMMAND_DECLARE_CURSOR            => 'DECLARE CURSOR',
+    COMMAND_DO                        => 'DO',
+    COMMAND_DISCARD_ALL                => 'DISCARD ALL',
+    COMMAND_CREATE_FUNCTION            => 'CREATE FUNCTION',
+    COMMAND_CREATE_ROLE                => 'CREATE ROLE',
+    COMMAND_CREATE_SCHEMA            => 'CREATE SCHEMA',
+    COMMAND_CREATE_TABLE            => 'CREATE TABLE',
+    COMMAND_CREATE_TABLE_AS            => 'CREATE TABLE AS',
+    COMMAND_DROP_DATABASE            => 'DROP DATABASE',
+    COMMAND_DROP_SCHEMA                => 'DROP SCHEMA',
+    COMMAND_DROP_TABLE                => 'DROP TABLE',
+    COMMAND_DROP_TABLE_CONSTRAINT    => 'DROP TABLE CONSTRAINT',
+    COMMAND_DROP_TABLE_INDEX        => 'DROP TABLE INDEX',
+    COMMAND_DROP_TABLE_TOAST        => 'DROP TABLE TOAST',
+    COMMAND_DROP_TABLE_TYPE            => 'DROP TABLE TYPE',
+    COMMAND_EXECUTE                    => 'EXECUTE',
+    COMMAND_EXECUTE_READ            => 'EXECUTE READ',
+    COMMAND_EXECUTE_WRITE            => 'EXECUTE WRITE',
+    COMMAND_EXECUTE_FUNCTION        => 'EXECUTE FUNCTION',
+    COMMAND_EXPLAIN                    => 'EXPLAIN',
+    COMMAND_FETCH                    => 'FETCH',
+    COMMAND_GRANT                    => 'GRANT',
+    COMMAND_INSERT                    => 'INSERT',
+    # COMMAND_PARAMETER                => 'PARAMETER',
+    # COMMAND_PARAMETER_READ            => 'PARAMETER_READ',
+    # COMMAND_PARAMETER_WRITE            => 'PARAMETER_WRITE',
+    COMMAND_PREPARE                    => 'PREPARE',
+    COMMAND_PREPARE_READ            => 'PREPARE READ',
+    COMMAND_PREPARE_WRITE            => 'PREPARE WRITE',
+    COMMAND_REVOKE                    => 'REVOKE',
+    COMMAND_SELECT                    => 'SELECT',
+    COMMAND_SET                        => 'SET',
+    COMMAND_UPDATE                    => 'UPDATE'
 };
 
 use constant
 {
-	TYPE					=> 'TYPE',
-	TYPE_NONE				=> '',
+    TYPE                    => 'TYPE',
+    TYPE_NONE                => '',
 
-	TYPE_AGGREGATE			=> 'AGGREGATE',
-	TYPE_COLLATION			=> 'COLLATION',
-	TYPE_CONVERSION			=> 'CONVERSION',
-	TYPE_SCHEMA				=> 'SCHEMA',
-	TYPE_FUNCTION			=> 'FUNCTION',
-	TYPE_INDEX				=> 'INDEX',
-	TYPE_TABLE				=> 'TABLE',
-	TYPE_TABLE_COLUMN		=> 'TABLE COLUMN',
-	TYPE_TABLE_CONSTRAINT	=> 'TABLE CONSTRAINT',
-	TYPE_TABLE_TOAST		=> 'TABLE TOAST',
-	TYPE_TYPE				=> 'TYPE'
+    TYPE_AGGREGATE            => 'AGGREGATE',
+    TYPE_COLLATION            => 'COLLATION',
+    TYPE_CONVERSION            => 'CONVERSION',
+    TYPE_SCHEMA                => 'SCHEMA',
+    TYPE_FUNCTION            => 'FUNCTION',
+    TYPE_INDEX                => 'INDEX',
+    TYPE_TABLE                => 'TABLE',
+    TYPE_TABLE_COLUMN        => 'TABLE COLUMN',
+    TYPE_TABLE_CONSTRAINT    => 'TABLE CONSTRAINT',
+    TYPE_TABLE_TOAST        => 'TABLE TOAST',
+    TYPE_TYPE                => 'TYPE'
 };
 
 use constant
 {
-	NAME			=> 'NAME'
+    NAME            => 'NAME'
 };
 
 ################################################################################
 # Command line parameters
 ################################################################################
-my $strPgSqlBin = '../../../../bin/bin';	# Path of PG binaries to use for
-											# this test
-my $strTestPath = '../../../../data';		# Path where testing will occur
-my $iDefaultPort = 6000;					# Default port to run Postgres on
-my $bHelp = false;							# Display help
-my $bQuiet = false;							# Supress output except for errors
-my $bNoCleanup = false;						# Cleanup database on exit
+my $strPgSqlBin = '../../../../bin/bin';    # Path of PG binaries to use for
+                                            # this test
+my $strTestPath = '../../../../data';        # Path where testing will occur
+my $iDefaultPort = 6000;                    # Default port to run Postgres on
+my $bHelp = false;                            # Display help
+my $bQuiet = false;                            # Supress output except for errors
+my $bNoCleanup = false;                        # Cleanup database on exit
 
 GetOptions ('q|quiet' => \$bQuiet,
-			'no-cleanup' => \$bNoCleanup,
-			'help' => \$bHelp,
-			'pgsql-bin=s' => \$strPgSqlBin,
-			'test-path=s' => \$strTestPath)
-	or pod2usage(2);
+            'no-cleanup' => \$bNoCleanup,
+            'help' => \$bHelp,
+            'pgsql-bin=s' => \$strPgSqlBin,
+            'test-path=s' => \$strTestPath)
+    or pod2usage(2);
 
 # Display version and exit if requested
 if ($bHelp)
 {
-	print 'pg_audit unit test\n\n';
-	pod2usage();
+    print 'pg_audit unit test\n\n';
+    pod2usage();
 
-	exit 0;
+    exit 0;
 }
 
 ################################################################################
 # Global variables
 ################################################################################
-my $hDb;					# Connection to Postgres
-my $strLogExpected = '';	# The expected log compared with grepping AUDIT
-							# entries from the postgres log.
+my $hDb;                    # Connection to Postgres
+my $strLogExpected = '';    # The expected log compared with grepping AUDIT
+                            # entries from the postgres log.
 
-my $strDatabase = 'postgres';	# Connected database (modified by PgSetDatabase)
-my $strUser = 'postgres';		# Connected user (modified by PgSetUser)
-my $strAuditRole = 'audit';		# Role to use for auditing
+my $strDatabase = 'postgres';    # Connected database (modified by PgSetDatabase)
+my $strUser = 'postgres';        # Connected user (modified by PgSetUser)
+my $strAuditRole = 'audit';        # Role to use for auditing
 
-my %oAuditLogHash;				# Hash to store pg_audit.log GUCS
-my %oAuditGrantHash;			# Hash to store pg_audit grants
+my %oAuditLogHash;                # Hash to store pg_audit.log GUCS
+my %oAuditGrantHash;            # Hash to store pg_audit grants
 
-my $strCurrentAuditLog;		# pg_audit.log setting was Postgres was started with
-my $strTemporaryAuditLog;	# pg_audit.log setting that was set hot
+my $strCurrentAuditLog;        # pg_audit.log setting was Postgres was started with
+my $strTemporaryAuditLog;    # pg_audit.log setting that was set hot
 
 ################################################################################
 # Stores the mapping between commands, classes, and types
 ################################################################################
 my %oCommandHash =
 (&COMMAND_ANALYZE => {
-	&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_ALTER_AGGREGATE => {&CLASS => &CLASS_DDL,
-		&TYPE => &TYPE_AGGREGATE},
-	&COMMAND_ALTER_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_ALTER_COLLATION => {&CLASS => &CLASS_DDL,
-		&TYPE => &TYPE_COLLATION},
-	&COMMAND_ALTER_CONVERSION => {&CLASS => &CLASS_DDL,
-		&TYPE => &TYPE_CONVERSION},
-	&COMMAND_ALTER_ROLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_ALTER_ROLE_SET => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE,
-		&COMMAND => &COMMAND_ALTER_ROLE},
-	&COMMAND_ALTER_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	&COMMAND_ALTER_TABLE_COLUMN => {&CLASS => &CLASS_DDL,
-		&TYPE => &TYPE_TABLE_COLUMN, &COMMAND => &COMMAND_ALTER_TABLE},
-	&COMMAND_ALTER_TABLE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX,
-		&COMMAND => &COMMAND_ALTER_TABLE},
-	&COMMAND_BEGIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_CLOSE => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_COMMIT => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_COPY_FROM => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
-		&COMMAND => &COMMAND_COPY},
-	&COMMAND_COPY_TO => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
-		&COMMAND => &COMMAND_COPY},
-	&COMMAND_CREATE_AGGREGATE => {&CLASS => &CLASS_DDL,
-		&TYPE => &TYPE_AGGREGATE},
-	&COMMAND_CREATE_CONVERSION => {&CLASS => &CLASS_DDL,
-		&TYPE => &TYPE_CONVERSION},
-	&COMMAND_CREATE_COLLATION => {&CLASS => &CLASS_DDL,
-		&TYPE => &TYPE_COLLATION},
-	&COMMAND_CREATE_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_CREATE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX},
-	&COMMAND_DEALLOCATE => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_DECLARE_CURSOR => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE},
-	&COMMAND_DO => {&CLASS => &CLASS_FUNCTION, &TYPE => &TYPE_NONE},
-	&COMMAND_DISCARD_ALL => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_CREATE_FUNCTION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_FUNCTION},
-	&COMMAND_CREATE_ROLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_CREATE_SCHEMA => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_SCHEMA},
-	&COMMAND_CREATE_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	&COMMAND_CREATE_TABLE_AS => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	&COMMAND_DROP_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_DROP_SCHEMA => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
-	&COMMAND_DROP_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	&COMMAND_DROP_TABLE_CONSTRAINT => {&CLASS => &CLASS_DDL,
-		&TYPE => &TYPE_TABLE_CONSTRAINT, &COMMAND => &COMMAND_DROP_TABLE},
-	&COMMAND_DROP_TABLE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX,
-		&COMMAND => &COMMAND_DROP_TABLE},
-	&COMMAND_DROP_TABLE_TOAST => {&CLASS => &CLASS_DDL,
-		&TYPE => &TYPE_TABLE_TOAST, &COMMAND => &COMMAND_DROP_TABLE},
-	&COMMAND_DROP_TABLE_TYPE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TYPE,
-		&COMMAND => &COMMAND_DROP_TABLE},
-	&COMMAND_EXECUTE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
-		&COMMAND => &COMMAND_EXECUTE},
-	&COMMAND_EXECUTE_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
-		&COMMAND => &COMMAND_EXECUTE},
-	&COMMAND_EXECUTE_FUNCTION => {&CLASS => &CLASS_FUNCTION,
-		&TYPE => &TYPE_FUNCTION, &COMMAND => &COMMAND_EXECUTE},
-	&COMMAND_EXPLAIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_FETCH => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_GRANT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	&COMMAND_PREPARE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
-		&COMMAND => &COMMAND_PREPARE},
-	&COMMAND_PREPARE_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
-		&COMMAND => &COMMAND_PREPARE},
-	&COMMAND_INSERT => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE},
-	&COMMAND_REVOKE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
-	&COMMAND_SELECT => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE},
-	&COMMAND_SET => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
-	&COMMAND_UPDATE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE}
+    &CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+    &COMMAND_ALTER_AGGREGATE => {&CLASS => &CLASS_DDL,
+        &TYPE => &TYPE_AGGREGATE},
+    &COMMAND_ALTER_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+    &COMMAND_ALTER_COLLATION => {&CLASS => &CLASS_DDL,
+        &TYPE => &TYPE_COLLATION},
+    &COMMAND_ALTER_CONVERSION => {&CLASS => &CLASS_DDL,
+        &TYPE => &TYPE_CONVERSION},
+    &COMMAND_ALTER_ROLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+    &COMMAND_ALTER_ROLE_SET => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE,
+        &COMMAND => &COMMAND_ALTER_ROLE},
+    &COMMAND_ALTER_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
+    &COMMAND_ALTER_TABLE_COLUMN => {&CLASS => &CLASS_DDL,
+        &TYPE => &TYPE_TABLE_COLUMN, &COMMAND => &COMMAND_ALTER_TABLE},
+    &COMMAND_ALTER_TABLE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX,
+        &COMMAND => &COMMAND_ALTER_TABLE},
+    &COMMAND_BEGIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
+    &COMMAND_CLOSE => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
+    &COMMAND_COMMIT => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
+    &COMMAND_COPY_FROM => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
+        &COMMAND => &COMMAND_COPY},
+    &COMMAND_COPY_TO => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
+        &COMMAND => &COMMAND_COPY},
+    &COMMAND_CREATE_AGGREGATE => {&CLASS => &CLASS_DDL,
+        &TYPE => &TYPE_AGGREGATE},
+    &COMMAND_CREATE_CONVERSION => {&CLASS => &CLASS_DDL,
+        &TYPE => &TYPE_CONVERSION},
+    &COMMAND_CREATE_COLLATION => {&CLASS => &CLASS_DDL,
+        &TYPE => &TYPE_COLLATION},
+    &COMMAND_CREATE_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+    &COMMAND_CREATE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX},
+    &COMMAND_DEALLOCATE => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
+    &COMMAND_DECLARE_CURSOR => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE},
+    &COMMAND_DO => {&CLASS => &CLASS_FUNCTION, &TYPE => &TYPE_NONE},
+    &COMMAND_DISCARD_ALL => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
+    &COMMAND_CREATE_FUNCTION => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_FUNCTION},
+    &COMMAND_CREATE_ROLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+    &COMMAND_CREATE_SCHEMA => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_SCHEMA},
+    &COMMAND_CREATE_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
+    &COMMAND_CREATE_TABLE_AS => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
+    &COMMAND_DROP_DATABASE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+    &COMMAND_DROP_SCHEMA => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_NONE},
+    &COMMAND_DROP_TABLE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
+    &COMMAND_DROP_TABLE_CONSTRAINT => {&CLASS => &CLASS_DDL,
+        &TYPE => &TYPE_TABLE_CONSTRAINT, &COMMAND => &COMMAND_DROP_TABLE},
+    &COMMAND_DROP_TABLE_INDEX => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_INDEX,
+        &COMMAND => &COMMAND_DROP_TABLE},
+    &COMMAND_DROP_TABLE_TOAST => {&CLASS => &CLASS_DDL,
+        &TYPE => &TYPE_TABLE_TOAST, &COMMAND => &COMMAND_DROP_TABLE},
+    &COMMAND_DROP_TABLE_TYPE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TYPE,
+        &COMMAND => &COMMAND_DROP_TABLE},
+    &COMMAND_EXECUTE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
+        &COMMAND => &COMMAND_EXECUTE},
+    &COMMAND_EXECUTE_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
+        &COMMAND => &COMMAND_EXECUTE},
+    &COMMAND_EXECUTE_FUNCTION => {&CLASS => &CLASS_FUNCTION,
+        &TYPE => &TYPE_FUNCTION, &COMMAND => &COMMAND_EXECUTE},
+    &COMMAND_EXPLAIN => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
+    &COMMAND_FETCH => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
+    &COMMAND_GRANT => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
+    &COMMAND_PREPARE_READ => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE,
+        &COMMAND => &COMMAND_PREPARE},
+    &COMMAND_PREPARE_WRITE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE,
+        &COMMAND => &COMMAND_PREPARE},
+    &COMMAND_INSERT => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE},
+    &COMMAND_REVOKE => {&CLASS => &CLASS_DDL, &TYPE => &TYPE_TABLE},
+    &COMMAND_SELECT => {&CLASS => &CLASS_READ, &TYPE => &TYPE_NONE},
+    &COMMAND_SET => {&CLASS => &CLASS_MISC, &TYPE => &TYPE_NONE},
+    &COMMAND_UPDATE => {&CLASS => &CLASS_WRITE, &TYPE => &TYPE_NONE}
 );
 
 ################################################################################
@@ -257,19 +257,19 @@ my %oCommandHash =
 ################################################################################
 sub CommandExecute
 {
-	my $strCommand = shift;
-	my $bSuppressError = shift;
+    my $strCommand = shift;
+    my $bSuppressError = shift;
 
-	# Set default
-	$bSuppressError = defined($bSuppressError) ? $bSuppressError : false;
+    # Set default
+    $bSuppressError = defined($bSuppressError) ? $bSuppressError : false;
 
-	# Run the command
-	my $iResult = system($strCommand);
+    # Run the command
+    my $iResult = system($strCommand);
 
-	if ($iResult != 0 && !$bSuppressError)
-	{
-		confess "command '${strCommand}' failed with error ${iResult}";
-	}
+    if ($iResult != 0 && !$bSuppressError)
+    {
+        confess "command '${strCommand}' failed with error ${iResult}";
+    }
 }
 
 ################################################################################
@@ -277,21 +277,21 @@ sub CommandExecute
 ################################################################################
 sub log
 {
-	my $strMessage = shift;
-	my $bError = shift;
+    my $strMessage = shift;
+    my $bError = shift;
 
-	# Set default
-	$bError = defined($bError) ? $bError : false;
+    # Set default
+    $bError = defined($bError) ? $bError : false;
 
-	if (!$bQuiet)
-	{
-		print "${strMessage}\n";
-	}
+    if (!$bQuiet)
+    {
+        print "${strMessage}\n";
+    }
 
-	if ($bError)
-	{
-		exit 1;
-	}
+    if ($bError)
+    {
+        exit 1;
+    }
 }
 
 ################################################################################
@@ -299,21 +299,21 @@ sub log
 ################################################################################
 sub ArrayToString
 {
-	my @stryArray = @_;
+    my @stryArray = @_;
 
-	my $strResult = '';
+    my $strResult = '';
 
-	for (my $iIndex = 0; $iIndex < @stryArray; $iIndex++)
-	{
-		if ($iIndex != 0)
-		{
-			$strResult .= ', ';
-		}
+    for (my $iIndex = 0; $iIndex < @stryArray; $iIndex++)
+    {
+        if ($iIndex != 0)
+        {
+            $strResult .= ', ';
+        }
 
-		$strResult .= $stryArray[$iIndex];
-	}
+        $strResult .= $stryArray[$iIndex];
+    }
 
-	return $strResult;
+    return $strResult;
 }
 
 ################################################################################
@@ -321,13 +321,13 @@ sub ArrayToString
 ################################################################################
 sub BuildModule
 {
-	capture('cd ..;make');
-	CommandExecute("cp ../pg_audit.so" .
-	               " ${strPgSqlBin}/../lib/postgresql");
-	CommandExecute("cp ../pg_audit.control" .
-	               " ${strPgSqlBin}/../share/postgresql/extension");
-	CommandExecute("cp ../pg_audit--1.0.0.sql" .
-	               " ${strPgSqlBin}/../share/postgresql/extension");
+    capture('cd ..;make');
+    CommandExecute("cp ../pg_audit.so" .
+                   " ${strPgSqlBin}/../lib/postgresql");
+    CommandExecute("cp ../pg_audit.control" .
+                   " ${strPgSqlBin}/../share/postgresql/extension");
+    CommandExecute("cp ../pg_audit--1.0.0.sql" .
+                   " ${strPgSqlBin}/../share/postgresql/extension");
 }
 
 ################################################################################
@@ -335,21 +335,21 @@ sub BuildModule
 ################################################################################
 sub PgConnect
 {
-	my $iPort = shift;
+    my $iPort = shift;
 
-	# Set default
-	$iPort = defined($iPort) ? $iPort : $iDefaultPort;
+    # Set default
+    $iPort = defined($iPort) ? $iPort : $iDefaultPort;
 
-	# Log Connection
-	&log("   DB: connect user ${strUser}, database ${strDatabase}");
+    # Log Connection
+    &log("   DB: connect user ${strUser}, database ${strDatabase}");
 
-	# Disconnect user session
-	PgDisconnect();
+    # Disconnect user session
+    PgDisconnect();
 
-	# Connect to the db
-	$hDb = DBI->connect("dbi:Pg:dbname=${strDatabase};port=${iPort};host=/tmp",
-						$strUser, undef,
-						{AutoCommit => 1, RaiseError => 1});
+    # Connect to the db
+    $hDb = DBI->connect("dbi:Pg:dbname=${strDatabase};port=${iPort};host=/tmp",
+                        $strUser, undef,
+                        {AutoCommit => 1, RaiseError => 1});
 }
 
 ################################################################################
@@ -357,12 +357,12 @@ sub PgConnect
 ################################################################################
 sub PgDisconnect
 {
-	# Connect to the db (whether it is local or remote)
-	if (defined($hDb))
-	{
-		$hDb->disconnect;
-		undef($hDb);
-	}
+    # Connect to the db (whether it is local or remote)
+    if (defined($hDb))
+    {
+        $hDb->disconnect;
+        undef($hDb);
+    }
 }
 
 ################################################################################
@@ -370,16 +370,16 @@ sub PgDisconnect
 ################################################################################
 sub PgExecute
 {
-	my $strSql = shift;
+    my $strSql = shift;
 
-	# Log the statement
-	&log("  SQL: ${strSql}");
+    # Log the statement
+    &log("  SQL: ${strSql}");
 
-	# Execute the statement
-	my $hStatement = $hDb->prepare($strSql);
+    # Execute the statement
+    my $hStatement = $hDb->prepare($strSql);
 
-	$hStatement->execute();
-	$hStatement->finish();
+    $hStatement->execute();
+    $hStatement->finish();
 }
 
 ################################################################################
@@ -387,13 +387,13 @@ sub PgExecute
 ################################################################################
 sub PgExecuteOnly
 {
-	my $strSql = shift;
+    my $strSql = shift;
 
-	# Log the statement
-	&log("  SQL: ${strSql}");
+    # Log the statement
+    &log("  SQL: ${strSql}");
 
-	# Execute the statement
-	$hDb->do($strSql);
+    # Execute the statement
+    $hDb->do($strSql);
 }
 
 ################################################################################
@@ -401,15 +401,15 @@ sub PgExecuteOnly
 ################################################################################
 sub PgSetDatabase
 {
-	my $strDatabaseParam = shift;
+    my $strDatabaseParam = shift;
 
-	# Stop and start the database to reset pgconf entries
-	PgStop();
-	PgStart();
+    # Stop and start the database to reset pgconf entries
+    PgStop();
+    PgStart();
 
-	# Execute the statement
-	$strDatabase = $strDatabaseParam;
-	PgConnect();
+    # Execute the statement
+    $strDatabase = $strDatabaseParam;
+    PgConnect();
 }
 
 ################################################################################
@@ -417,25 +417,25 @@ sub PgSetDatabase
 ################################################################################
 sub PgSetUser
 {
-	my $strUserParam = shift;
+    my $strUserParam = shift;
 
-	$strUser = $strUserParam;
+    $strUser = $strUserParam;
 
-	# Stop and start the database to reset pgconf entries
-	if ((defined($strTemporaryAuditLog) && !defined($strCurrentAuditLog)) ||
-		(defined($strCurrentAuditLog) && !defined($strTemporaryAuditLog)) ||
-		$strCurrentAuditLog ne $strTemporaryAuditLog)
-	{
-		$strCurrentAuditLog = $strTemporaryAuditLog;
+    # Stop and start the database to reset pgconf entries
+    if ((defined($strTemporaryAuditLog) && !defined($strCurrentAuditLog)) ||
+        (defined($strCurrentAuditLog) && !defined($strTemporaryAuditLog)) ||
+        $strCurrentAuditLog ne $strTemporaryAuditLog)
+    {
+        $strCurrentAuditLog = $strTemporaryAuditLog;
 
-		PgStop();
-		PgStart();
-	}
-	else
-	{
-		# Execute the statement
-		PgConnect();
-	}
+        PgStop();
+        PgStart();
+    }
+    else
+    {
+        # Execute the statement
+        PgConnect();
+    }
 }
 
 ################################################################################
@@ -443,22 +443,22 @@ sub PgSetUser
 ################################################################################
 sub SaveString
 {
-	my $strFile = shift;
-	my $strString = shift;
+    my $strFile = shift;
+    my $strString = shift;
 
-	# Open the file for writing
-	my $hFile;
+    # Open the file for writing
+    my $hFile;
 
-	open($hFile, '>', $strFile)
-		or confess "unable to open ${strFile}";
+    open($hFile, '>', $strFile)
+        or confess "unable to open ${strFile}";
 
-	if ($strString ne '')
-	{
-		syswrite($hFile, $strString)
-			or confess "unable to write to ${strFile}: $!";
-	}
+    if ($strString ne '')
+    {
+        syswrite($hFile, $strString)
+            or confess "unable to write to ${strFile}: $!";
+    }
 
-	close($hFile);
+    close($hFile);
 }
 
 ################################################################################
@@ -466,39 +466,39 @@ sub SaveString
 ################################################################################
 sub PgLogExecute
 {
-	my $strCommand = shift;
-	my $strSql = shift;
-	my $oData = shift;
-	my $bExecute = shift;
-	my $bWait = shift;
-	my $bLogSql = shift;
-	my $strParameter = shift;
-	my $bExpectError = shift;
+    my $strCommand = shift;
+    my $strSql = shift;
+    my $oData = shift;
+    my $bExecute = shift;
+    my $bWait = shift;
+    my $bLogSql = shift;
+    my $strParameter = shift;
+    my $bExpectError = shift;
 
-	# Set defaults
-	$bExecute = defined($bExecute) ? $bExecute : true;
-	$bWait = defined($bWait) ? $bWait : true;
-	$bLogSql = defined($bLogSql) ? $bLogSql : true;
+    # Set defaults
+    $bExecute = defined($bExecute) ? $bExecute : true;
+    $bWait = defined($bWait) ? $bWait : true;
+    $bLogSql = defined($bLogSql) ? $bLogSql : true;
 
-	if ($bExecute)
-	{
-		eval
-		{
-			PgExecuteOnly($strSql);
-		};
-		
-		if ($@ && !$bExpectError)
-		{
-			confess $@;
-		}
-	}
+    if ($bExecute)
+    {
+        eval
+        {
+            PgExecuteOnly($strSql);
+        };
+        
+        if ($@ && !$bExpectError)
+        {
+            confess $@;
+        }
+    }
 
-	PgLogExpect($strCommand, $bLogSql ? $strSql : '', $strParameter, $oData);
+    PgLogExpect($strCommand, $bLogSql ? $strSql : '', $strParameter, $oData);
 
-	if ($bWait)
-	{
-		PgLogWait();
-	}
+    if ($bWait)
+    {
+        PgLogWait();
+    }
 }
 
 ################################################################################
@@ -506,17 +506,17 @@ sub PgLogExecute
 ################################################################################
 sub QuoteCSV
 {
-	my $strCSV = shift;
-	
-	if (defined($strCSV) &&
-		(index($strCSV, ',') >= 0 || index($strCSV, '"') > 0 ||
-		 index($strCSV, "\n") > 0 || index($strCSV, "\r") >= 0))
-	{
-		$strCSV =~ s/"/""/g;
-		$strCSV = "\"${strCSV}\"";
-	}
-	
-	return $strCSV;
+    my $strCSV = shift;
+    
+    if (defined($strCSV) &&
+        (index($strCSV, ',') >= 0 || index($strCSV, '"') > 0 ||
+         index($strCSV, "\n") > 0 || index($strCSV, "\r") >= 0))
+    {
+        $strCSV =~ s/"/""/g;
+        $strCSV = "\"${strCSV}\"";
+    }
+    
+    return $strCSV;
 }
 
 ################################################################################
@@ -524,93 +524,93 @@ sub QuoteCSV
 ################################################################################
 sub PgLogExpect
 {
-	my $strCommand = shift;
-	my $strSql = shift;
-	my $strParameter = shift;
-	my $oData = shift;
+    my $strCommand = shift;
+    my $strSql = shift;
+    my $strParameter = shift;
+    my $oData = shift;
 
-	# If oData is false then no logging
-	if (defined($oData) && ref($oData) eq '' && !$oData)
-	{
-		return;
-	}
+    # If oData is false then no logging
+    if (defined($oData) && ref($oData) eq '' && !$oData)
+    {
+        return;
+    }
 
-	# Quote SQL if needs to be quoted
-	$strSql = QuoteCSV($strSql);
-	
-	if (defined($strParameter))
-	{
-		$strSql .= ",${strParameter}";
-	}
+    # Quote SQL if needs to be quoted
+    $strSql = QuoteCSV($strSql);
+    
+    if (defined($strParameter))
+    {
+        $strSql .= ",${strParameter}";
+    }
 
-	# Log based on session
-	if (PgShouldLog($strCommand))
-	{
-		# Make sure class is defined
-		my $strClass = $oCommandHash{$strCommand}{&CLASS};
+    # Log based on session
+    if (PgShouldLog($strCommand))
+    {
+        # Make sure class is defined
+        my $strClass = $oCommandHash{$strCommand}{&CLASS};
 
-		if (!defined($strClass))
-		{
-			confess "class is not defined for command ${strCommand}";
-		}
+        if (!defined($strClass))
+        {
+            confess "class is not defined for command ${strCommand}";
+        }
 
-		# Make sure object type is defined
-		my $strObjectType = $oCommandHash{$strCommand}{&TYPE};
+        # Make sure object type is defined
+        my $strObjectType = $oCommandHash{$strCommand}{&TYPE};
 
-		if (!defined($strObjectType))
-		{
-			confess "object type is not defined for command ${strCommand}";
-		}
+        if (!defined($strObjectType))
+        {
+            confess "object type is not defined for command ${strCommand}";
+        }
 
-		# Check for command override
-		my $strCommandLog = $strCommand;
+        # Check for command override
+        my $strCommandLog = $strCommand;
 
-		if ($oCommandHash{$strCommand}{&COMMAND})
-		{
-			$strCommandLog = $oCommandHash{$strCommand}{&COMMAND};
-		}
+        if ($oCommandHash{$strCommand}{&COMMAND})
+        {
+            $strCommandLog = $oCommandHash{$strCommand}{&COMMAND};
+        }
 
-		my $strObjectName = '';
+        my $strObjectName = '';
 
-		if (defined($oData) && ref($oData) ne 'ARRAY')
-		{
-			$strObjectName = QuoteCSV($oData);
-		}
+        if (defined($oData) && ref($oData) ne 'ARRAY')
+        {
+            $strObjectName = QuoteCSV($oData);
+        }
 
-		my $strLog .= "SESSION,${strClass},${strCommandLog}," .
-					  "${strObjectType},${strObjectName},${strSql}";
-		&log("AUDIT: ${strLog}");
+        my $strLog .= "SESSION,${strClass},${strCommandLog}," .
+                      "${strObjectType},${strObjectName},${strSql}";
+        &log("AUDIT: ${strLog}");
 
-		$strLogExpected .= "${strLog}\n";
-	}
+        $strLogExpected .= "${strLog}\n";
+    }
 
-	# Log based on grants
-	if (ref($oData) eq 'ARRAY' && ($strCommand eq COMMAND_SELECT ||
-		$oCommandHash{$strCommand}{&CLASS} eq CLASS_WRITE))
-	{
-		foreach my $oTableHash (@{$oData})
-		{
-			my $strObjectName = QuoteCSV(${$oTableHash}{&NAME});
-			my $strCommandLog = ${$oTableHash}{&COMMAND};
+    # Log based on grants
+    if (ref($oData) eq 'ARRAY' && ($strCommand eq COMMAND_SELECT ||
+        $oCommandHash{$strCommand}{&CLASS} eq CLASS_WRITE))
+    {
+        foreach my $oTableHash (@{$oData})
+        {
+            my $strObjectName = QuoteCSV(${$oTableHash}{&NAME});
+            my $strCommandLog = ${$oTableHash}{&COMMAND};
 
-			if (defined($oAuditGrantHash{$strAuditRole}
-										{$strObjectName}{$strCommandLog}))
-			{
-				my $strCommandLog = defined(${$oTableHash}{&COMMAND_LOG}) ?
-					${$oTableHash}{&COMMAND_LOG} : $strCommandLog;
-				my $strClass = $oCommandHash{$strCommandLog}{&CLASS};
-				my $strObjectType = ${$oTableHash}{&TYPE};
+            if (defined($oAuditGrantHash{$strAuditRole}
+                                        {$strObjectName}{$strCommandLog}))
+            {
+                my $strCommandLog = defined(${$oTableHash}{&COMMAND_LOG}) ?
+                    ${$oTableHash}{&COMMAND_LOG} : $strCommandLog;
+                my $strClass = $oCommandHash{$strCommandLog}{&CLASS};
+                my $strObjectType = ${$oTableHash}{&TYPE};
 
-				my $strLog .= "OBJECT,${strClass},${strCommandLog}," .
-							  "${strObjectType},${strObjectName},${strSql}";
-				&log("AUDIT: ${strLog}");
+                my $strLog .= "OBJECT,${strClass},${strCommandLog}," .
+                              "${strObjectType},${strObjectName},${strSql}";
+                &log("AUDIT: ${strLog}");
 
-				$strLogExpected .= "${strLog}\n";
-			}
-		}
+                $strLogExpected .= "${strLog}\n";
+            }
+        }
 
-		$oData = undef;
-	}
+        $oData = undef;
+    }
 }
 
 ################################################################################
@@ -618,37 +618,37 @@ sub PgLogExpect
 ################################################################################
 sub PgShouldLog
 {
-	my $strCommand = shift;
+    my $strCommand = shift;
 
-	# Make sure class is defined
-	my $strClass = $oCommandHash{$strCommand}{&CLASS};
+    # Make sure class is defined
+    my $strClass = $oCommandHash{$strCommand}{&CLASS};
 
-	if (!defined($strClass))
-	{
-		confess "class is not defined for command ${strCommand}";
-	}
+    if (!defined($strClass))
+    {
+        confess "class is not defined for command ${strCommand}";
+    }
 
-	# Check logging for the role
-	my $bLog = undef;
+    # Check logging for the role
+    my $bLog = undef;
 
-	if (defined($oAuditLogHash{&CONTEXT_ROLE}{$strUser}))
-	{
-		$bLog = $oAuditLogHash{&CONTEXT_ROLE}{$strUser}{$strClass};
-	}
+    if (defined($oAuditLogHash{&CONTEXT_ROLE}{$strUser}))
+    {
+        $bLog = $oAuditLogHash{&CONTEXT_ROLE}{$strUser}{$strClass};
+    }
 
-	# Else check logging for the db
-	elsif (defined($oAuditLogHash{&CONTEXT_DATABASE}{$strDatabase}))
-	{
-		$bLog = $oAuditLogHash{&CONTEXT_DATABASE}{$strDatabase}{$strClass};
-	}
+    # Else check logging for the db
+    elsif (defined($oAuditLogHash{&CONTEXT_DATABASE}{$strDatabase}))
+    {
+        $bLog = $oAuditLogHash{&CONTEXT_DATABASE}{$strDatabase}{$strClass};
+    }
 
-	# Else check logging for global
-	elsif (defined($oAuditLogHash{&CONTEXT_GLOBAL}{&CONTEXT_GLOBAL}))
-	{
-		$bLog = $oAuditLogHash{&CONTEXT_GLOBAL}{&CONTEXT_GLOBAL}{$strClass};
-	}
+    # Else check logging for global
+    elsif (defined($oAuditLogHash{&CONTEXT_GLOBAL}{&CONTEXT_GLOBAL}))
+    {
+        $bLog = $oAuditLogHash{&CONTEXT_GLOBAL}{&CONTEXT_GLOBAL}{$strClass};
+    }
 
-	return defined($bLog) ? true : false;
+    return defined($bLog) ? true : false;
 }
 
 ################################################################################
@@ -656,39 +656,39 @@ sub PgShouldLog
 ################################################################################
 sub PgLogWait
 {
-	my $strLogActual;
+    my $strLogActual;
 
-	# Run in an eval block since grep returns 1 when nothing was found
-	eval
-	{
-		$strLogActual = capture("grep 'LOG:  AUDIT: '" .
-								" ${strTestPath}/postgresql.log");
-	};
+    # Run in an eval block since grep returns 1 when nothing was found
+    eval
+    {
+        $strLogActual = capture("grep 'LOG:  AUDIT: '" .
+                                " ${strTestPath}/postgresql.log");
+    };
 
-	# If an error was returned, continue if it was 1, otherwise confess
-	if ($@)
-	{
-		my $iExitStatus = $? >> 8;
+    # If an error was returned, continue if it was 1, otherwise confess
+    if ($@)
+    {
+        my $iExitStatus = $? >> 8;
 
-		if ($iExitStatus != 1)
-		{
-			confess "grep returned ${iExitStatus}";
-		}
+        if ($iExitStatus != 1)
+        {
+            confess "grep returned ${iExitStatus}";
+        }
 
-		$strLogActual = '';
-	}
+        $strLogActual = '';
+    }
 
-	# Strip the AUDIT and timestamp from the actual log
-	$strLogActual =~ s/prefix LOG:  AUDIT\: //g;
-	$strLogActual =~ s/SESSION,[0-9]+,[0-9]+,/SESSION,/g;
-	$strLogActual =~ s/OBJECT,[0-9]+,[0-9]+,/OBJECT,/g;
+    # Strip the AUDIT and timestamp from the actual log
+    $strLogActual =~ s/prefix LOG:  AUDIT\: //g;
+    $strLogActual =~ s/SESSION,[0-9]+,[0-9]+,/SESSION,/g;
+    $strLogActual =~ s/OBJECT,[0-9]+,[0-9]+,/OBJECT,/g;
 
-	# Save the logs
-	SaveString("${strTestPath}/audit.actual", $strLogActual);
-	SaveString("${strTestPath}/audit.expected", $strLogExpected);
+    # Save the logs
+    SaveString("${strTestPath}/audit.actual", $strLogActual);
+    SaveString("${strTestPath}/audit.expected", $strLogExpected);
 
-	CommandExecute("diff ${strTestPath}/audit.expected" .
-				   " ${strTestPath}/audit.actual");
+    CommandExecute("diff ${strTestPath}/audit.expected" .
+                   " ${strTestPath}/audit.actual");
 }
 
 ################################################################################
@@ -696,16 +696,16 @@ sub PgLogWait
 ################################################################################
 sub PgDrop
 {
-	my $strPath = shift;
+    my $strPath = shift;
 
-	# Set default
-	$strPath = defined($strPath) ? $strPath : $strTestPath;
+    # Set default
+    $strPath = defined($strPath) ? $strPath : $strTestPath;
 
-	# Stop the cluster
-	PgStop(true, $strPath);
+    # Stop the cluster
+    PgStop(true, $strPath);
 
-	# Remove the directory
-	CommandExecute("rm -rf ${strTestPath}");
+    # Remove the directory
+    CommandExecute("rm -rf ${strTestPath}");
 }
 
 ################################################################################
@@ -713,13 +713,13 @@ sub PgDrop
 ################################################################################
 sub PgCreate
 {
-	my $strPath = shift;
+    my $strPath = shift;
 
-	# Set default
-	$strPath = defined($strPath) ? $strPath : $strTestPath;
+    # Set default
+    $strPath = defined($strPath) ? $strPath : $strTestPath;
 
-	CommandExecute("${strPgSqlBin}/initdb -D ${strPath} -U ${strUser}" .
-				   ' -A trust > /dev/null');
+    CommandExecute("${strPgSqlBin}/initdb -D ${strPath} -U ${strUser}" .
+                   ' -A trust > /dev/null');
 }
 
 ################################################################################
@@ -727,22 +727,22 @@ sub PgCreate
 ################################################################################
 sub PgStop
 {
-	my $bImmediate = shift;
-	my $strPath = shift;
+    my $bImmediate = shift;
+    my $strPath = shift;
 
-	# Set default
-	$strPath = defined($strPath) ? $strPath : $strTestPath;
-	$bImmediate = defined($bImmediate) ? $bImmediate : false;
+    # Set default
+    $strPath = defined($strPath) ? $strPath : $strTestPath;
+    $bImmediate = defined($bImmediate) ? $bImmediate : false;
 
-	# Disconnect user session
-	PgDisconnect();
+    # Disconnect user session
+    PgDisconnect();
 
-	# If postmaster process is running then stop the cluster
-	if (-e $strPath . '/postmaster.pid')
-	{
-		CommandExecute("${strPgSqlBin}/pg_ctl stop -D ${strPath} -w -s -m " .
-					  ($bImmediate ? 'immediate' : 'fast'));
-	}
+    # If postmaster process is running then stop the cluster
+    if (-e $strPath . '/postmaster.pid')
+    {
+        CommandExecute("${strPgSqlBin}/pg_ctl stop -D ${strPath} -w -s -m " .
+                      ($bImmediate ? 'immediate' : 'fast'));
+    }
 }
 
 ################################################################################
@@ -750,35 +750,35 @@ sub PgStop
 ################################################################################
 sub PgStart
 {
-	my $iPort = shift;
-	my $strPath = shift;
+    my $iPort = shift;
+    my $strPath = shift;
 
-	# Set default
-	$iPort = defined($iPort) ? $iPort : $iDefaultPort;
-	$strPath = defined($strPath) ? $strPath : $strTestPath;
+    # Set default
+    $iPort = defined($iPort) ? $iPort : $iDefaultPort;
+    $strPath = defined($strPath) ? $strPath : $strTestPath;
 
-	# Make sure postgres is not running
-	if (-e $strPath . '/postmaster.pid')
-	{
-		confess "${strPath}/postmaster.pid exists, cannot start";
-	}
+    # Make sure postgres is not running
+    if (-e $strPath . '/postmaster.pid')
+    {
+        confess "${strPath}/postmaster.pid exists, cannot start";
+    }
 
-	# Start the cluster
-	CommandExecute("${strPgSqlBin}/pg_ctl start -o \"" .
-				   "-c port=${iPort}" .
-				   " -c unix_socket_directories='/tmp'" .
-				   " -c shared_preload_libraries='pg_audit'" .
-				   " -c log_min_messages=debug1" .
-				   " -c log_line_prefix='prefix '" .
-				   " -c log_statement=all" .
-				   (defined($strCurrentAuditLog) ?
-					   " -c pg_audit.log='${strCurrentAuditLog}'" : '') .
-				   " -c pg_audit.role='${strAuditRole}'" .
-				   " -c log_connections=on" .
-				   "\" -D ${strPath} -l ${strPath}/postgresql.log -w -s");
+    # Start the cluster
+    CommandExecute("${strPgSqlBin}/pg_ctl start -o \"" .
+                   "-c port=${iPort}" .
+                   " -c unix_socket_directories='/tmp'" .
+                   " -c shared_preload_libraries='pg_audit'" .
+                   " -c log_min_messages=debug1" .
+                   " -c log_line_prefix='prefix '" .
+                   " -c log_statement=all" .
+                   (defined($strCurrentAuditLog) ?
+                       " -c pg_audit.log='${strCurrentAuditLog}'" : '') .
+                   " -c pg_audit.role='${strAuditRole}'" .
+                   " -c log_connections=on" .
+                   "\" -D ${strPath} -l ${strPath}/postgresql.log -w -s");
 
-	# Connect user session
-	PgConnect();
+    # Connect user session
+    PgConnect();
 }
 
 ################################################################################
@@ -786,68 +786,68 @@ sub PgStart
 ################################################################################
 sub PgAuditLogSet
 {
-	my $strContext = shift;
-	my $strName = shift;
-	my @stryClass = @_;
+    my $strContext = shift;
+    my $strName = shift;
+    my @stryClass = @_;
 
-	# Create SQL to set the GUC
-	my $strCommand;
-	my $strSql;
+    # Create SQL to set the GUC
+    my $strCommand;
+    my $strSql;
 
-	if ($strContext eq CONTEXT_GLOBAL)
-	{
-		$strCommand = COMMAND_SET;
-		$strSql = "set pg_audit.log = '" .
-				  ArrayToString(@stryClass) . "'";
-		$strTemporaryAuditLog = ArrayToString(@stryClass);
-	}
-	elsif ($strContext eq CONTEXT_ROLE)
-	{
-		$strCommand = COMMAND_ALTER_ROLE_SET;
-		$strSql = "alter role ${strName} set pg_audit.log = '" .
-				  ArrayToString(@stryClass) . "'";
-	}
-	else
-	{
-		confess "unable to set pg_audit.log for context ${strContext}";
-	}
+    if ($strContext eq CONTEXT_GLOBAL)
+    {
+        $strCommand = COMMAND_SET;
+        $strSql = "set pg_audit.log = '" .
+                  ArrayToString(@stryClass) . "'";
+        $strTemporaryAuditLog = ArrayToString(@stryClass);
+    }
+    elsif ($strContext eq CONTEXT_ROLE)
+    {
+        $strCommand = COMMAND_ALTER_ROLE_SET;
+        $strSql = "alter role ${strName} set pg_audit.log = '" .
+                  ArrayToString(@stryClass) . "'";
+    }
+    else
+    {
+        confess "unable to set pg_audit.log for context ${strContext}";
+    }
 
-	# Reset the audit log
-	if ($strContext eq CONTEXT_GLOBAL)
-	{
-		delete($oAuditLogHash{$strContext});
-		$strName = CONTEXT_GLOBAL;
-	}
-	else
-	{
-		delete($oAuditLogHash{$strContext}{$strName});
-	}
+    # Reset the audit log
+    if ($strContext eq CONTEXT_GLOBAL)
+    {
+        delete($oAuditLogHash{$strContext});
+        $strName = CONTEXT_GLOBAL;
+    }
+    else
+    {
+        delete($oAuditLogHash{$strContext}{$strName});
+    }
 
-	# Store all the classes in the hash and build the GUC
-	foreach my $strClass (@stryClass)
-	{
-		if ($strClass eq CLASS_ALL)
-		{
-			$oAuditLogHash{$strContext}{$strName}{&CLASS_DDL} = true;
-			$oAuditLogHash{$strContext}{$strName}{&CLASS_FUNCTION} = true;
-			$oAuditLogHash{$strContext}{$strName}{&CLASS_MISC} = true;
-			$oAuditLogHash{$strContext}{$strName}{&CLASS_READ} = true;
-			$oAuditLogHash{$strContext}{$strName}{&CLASS_WRITE} = true;
-		}
+    # Store all the classes in the hash and build the GUC
+    foreach my $strClass (@stryClass)
+    {
+        if ($strClass eq CLASS_ALL)
+        {
+            $oAuditLogHash{$strContext}{$strName}{&CLASS_DDL} = true;
+            $oAuditLogHash{$strContext}{$strName}{&CLASS_FUNCTION} = true;
+            $oAuditLogHash{$strContext}{$strName}{&CLASS_MISC} = true;
+            $oAuditLogHash{$strContext}{$strName}{&CLASS_READ} = true;
+            $oAuditLogHash{$strContext}{$strName}{&CLASS_WRITE} = true;
+        }
 
-		if (index($strClass, '-') == 0)
-		{
-			$strClass = substr($strClass, 1);
+        if (index($strClass, '-') == 0)
+        {
+            $strClass = substr($strClass, 1);
 
-			delete($oAuditLogHash{$strContext}{$strName}{$strClass});
-		}
-		else
-		{
-			$oAuditLogHash{$strContext}{$strName}{$strClass} = true;
-		}
-	}
+            delete($oAuditLogHash{$strContext}{$strName}{$strClass});
+        }
+        else
+        {
+            $oAuditLogHash{$strContext}{$strName}{$strClass} = true;
+        }
+    }
 
-	PgLogExecute($strCommand, $strSql);
+    PgLogExecute($strCommand, $strSql);
 }
 
 ################################################################################
@@ -855,19 +855,19 @@ sub PgAuditLogSet
 ################################################################################
 sub PgAuditGrantSet
 {
-	my $strRole = shift;
-	my $strPrivilege = shift;
-	my $strObject = shift;
-	my $strColumn = shift;
+    my $strRole = shift;
+    my $strPrivilege = shift;
+    my $strObject = shift;
+    my $strColumn = shift;
 
-	# Create SQL to set the grant
-	PgLogExecute(COMMAND_GRANT, "GRANT " . 
-								(defined($strColumn) ?
-									lc(${strPrivilege}) ." (${strColumn})" :
-									uc(${strPrivilege})) .
-								" ON TABLE ${strObject} TO ${strRole} ");
+    # Create SQL to set the grant
+    PgLogExecute(COMMAND_GRANT, "GRANT " . 
+                                (defined($strColumn) ?
+                                    lc(${strPrivilege}) ." (${strColumn})" :
+                                    uc(${strPrivilege})) .
+                                " ON TABLE ${strObject} TO ${strRole} ");
 
-	$oAuditGrantHash{$strRole}{$strObject}{$strPrivilege} = true;
+    $oAuditGrantHash{$strRole}{$strObject}{$strPrivilege} = true;
 }
 
 ################################################################################
@@ -875,17 +875,17 @@ sub PgAuditGrantSet
 ################################################################################
 sub PgAuditGrantReset
 {
-	my $strRole = shift;
-	my $strPrivilege = shift;
-	my $strObject = shift;
-	my $strColumn = shift;
+    my $strRole = shift;
+    my $strPrivilege = shift;
+    my $strObject = shift;
+    my $strColumn = shift;
 
-	# Create SQL to set the grant
-	PgLogExecute(COMMAND_REVOKE, "REVOKE  " . uc(${strPrivilege}) .
-				 (defined($strColumn) ? " (${strColumn})" : '') .
-				 " ON TABLE ${strObject} FROM ${strRole} ");
+    # Create SQL to set the grant
+    PgLogExecute(COMMAND_REVOKE, "REVOKE  " . uc(${strPrivilege}) .
+                 (defined($strColumn) ? " (${strColumn})" : '') .
+                 " ON TABLE ${strObject} FROM ${strRole} ");
 
-	delete($oAuditGrantHash{$strRole}{$strObject}{$strPrivilege});
+    delete($oAuditGrantHash{$strRole}{$strObject}{$strPrivilege});
 }
 
 ################################################################################
@@ -931,59 +931,59 @@ PgLogExecute(COMMAND_CREATE_TABLE,
 
 # Catalog select should not log
 PgLogExecute(COMMAND_SELECT, 'select * from pg_class limit 1',
-							   false);
+                               false);
 
 # Multi-table select
 @oyTable = ({&NAME => 'public.test3', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT},
-			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT});
+             &COMMAND => &COMMAND_SELECT},
+            {&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select * from test3, test2',
-							   \@oyTable);
+                               \@oyTable);
 
 # Various CTE combinations
 PgAuditGrantSet($strAuditRole, &COMMAND_INSERT, 'public.test3');
 
 @oyTable = ({&NAME => 'public.test3', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_INSERT},
-			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT});
+             &COMMAND => &COMMAND_INSERT},
+            {&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_INSERT,
-			 'with cte as (select id from test2)' .
-			 ' insert into test3 select id from cte',
-			 \@oyTable);
+             'with cte as (select id from test2)' .
+             ' insert into test3 select id from cte',
+             \@oyTable);
 
 @oyTable = ({&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
              &COMMAND => &COMMAND_INSERT},
-			{&NAME => 'public.test3', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_INSERT});
+            {&NAME => 'public.test3', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_INSERT});
 PgLogExecute(COMMAND_INSERT,
-			 'with cte as (insert into test3 values (1) returning id)' .
-			 ' insert into test2 select id from cte',
-			 \@oyTable);
+             'with cte as (insert into test3 values (1) returning id)' .
+             ' insert into test2 select id from cte',
+             \@oyTable);
 
 PgAuditGrantSet($strAuditRole, &COMMAND_UPDATE, 'public.test2');
 
 @oyTable = ({&NAME => 'public.test3', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_INSERT},
-			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_UPDATE});
+             &COMMAND => &COMMAND_INSERT},
+            {&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_UPDATE});
 PgLogExecute(COMMAND_INSERT,
              'with cte as (update test2 set id = 1 returning id)' .
-			 ' insert into test3 select id from cte',
-			 \@oyTable);
+             ' insert into test3 select id from cte',
+             \@oyTable);
 
 @oyTable = ({&NAME => 'public.test3', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_UPDATE},
-			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_INSERT},
-			{&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_INSERT});
+             &COMMAND => &COMMAND_UPDATE},
+            {&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_INSERT},
+            {&NAME => 'public.test2', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_INSERT});
 PgLogExecute(COMMAND_UPDATE,
-			 'with cte as (insert into test2 values (1) returning id)' .
-			 ' update test3 set id = cte.id' .
-			 ' from cte where test3.id <> cte.id',
-			 \@oyTable);
+             'with cte as (insert into test2 values (1) returning id)' .
+             ' update test3 set id = cte.id' .
+             ' from cte where test3.id <> cte.id',
+             \@oyTable);
 
 PgSetUser('postgres');
 PgAuditLogSet(CONTEXT_ROLE, 'user2', (CLASS_NONE));
@@ -991,7 +991,7 @@ PgSetUser('user2');
 
 # Column-based audits
 PgLogExecute(COMMAND_CREATE_TABLE,
-			 'create table test4 (id int, name text)', 'public.test4');
+             'create table test4 (id int, name text)', 'public.test4');
 PgAuditGrantSet($strAuditRole, COMMAND_SELECT, 'public.test4', 'name');
 PgAuditGrantSet($strAuditRole, COMMAND_UPDATE, 'public.test4', 'id');
 PgAuditGrantSet($strAuditRole, COMMAND_INSERT, 'public.test4', 'name');
@@ -999,38 +999,38 @@ PgAuditGrantSet($strAuditRole, COMMAND_INSERT, 'public.test4', 'name');
 # Select
 @oyTable = ();
 PgLogExecute(COMMAND_SELECT, 'select id from public.test4',
-							  \@oyTable);
+                              \@oyTable);
 
 @oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT});
+             &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select name from public.test4',
-							  \@oyTable);
+                              \@oyTable);
 
 # Insert
 @oyTable = ();
 PgLogExecute(COMMAND_INSERT, 'insert into public.test4 (id) values (1)',
-							   \@oyTable);
+                               \@oyTable);
 
 @oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_INSERT});
+             &COMMAND => &COMMAND_INSERT});
 PgLogExecute(COMMAND_INSERT, "insert into public.test4 (name) values ('test')",
-							  \@oyTable);
+                              \@oyTable);
 
 # Update
 @oyTable = ();
 PgLogExecute(COMMAND_UPDATE, "update public.test4 set name = 'foo'",
-							   \@oyTable);
+                               \@oyTable);
 
 @oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_UPDATE});
+             &COMMAND => &COMMAND_UPDATE});
 PgLogExecute(COMMAND_UPDATE, "update public.test4 set id = 1",
-							  \@oyTable);
+                              \@oyTable);
 
 @oyTable = ({&NAME => 'public.test4', &TYPE => &TYPE_TABLE,
             &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_UPDATE});
 PgLogExecute(COMMAND_UPDATE,
-			 "update public.test4 set name = 'foo' where name = 'bar'",
-			 \@oyTable);
+             "update public.test4 set name = 'foo' where name = 'bar'",
+             \@oyTable);
 
 # Drop test tables
 PgLogExecute(COMMAND_DROP_TABLE, "drop table test2", 'public.test2');
@@ -1054,15 +1054,15 @@ PgSetUser('user1');
 
 $strSql = 'CREATE  TABLE  public.account (id pg_catalog.int4   ,' .
           ' name pg_catalog.text   COLLATE pg_catalog."default", ' .
-		  'password pg_catalog.text   COLLATE pg_catalog."default", '.
-		  'description pg_catalog.text   COLLATE pg_catalog."default")  '.
-		  'WITH (oids=OFF)  ';
+          'password pg_catalog.text   COLLATE pg_catalog."default", '.
+          'description pg_catalog.text   COLLATE pg_catalog."default")  '.
+          'WITH (oids=OFF)  ';
 PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.account');
 PgLogExecute(COMMAND_SELECT,
-			 'select * from account');
+             'select * from account');
 PgLogExecute(COMMAND_INSERT,
-			 "insert into account (id, name, password, description)" .
-			 " values (1, 'user1', 'HASH1', 'blah, blah')");
+             "insert into account (id, name, password, description)" .
+             " values (1, 'user1', 'HASH1', 'blah, blah')");
 &log("AUDIT: <nothing logged>");
 
 # Now tests for object logging
@@ -1077,26 +1077,26 @@ PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.account', 'password');
 
 @oyTable = ();
 PgLogExecute(COMMAND_SELECT, 'select id, name from account',
-							  \@oyTable);
+                              \@oyTable);
 &log("AUDIT: <nothing logged>");
 
 @oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
              &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select password from account',
-							  \@oyTable);
+                              \@oyTable);
 
 PgAuditGrantSet($strAuditRole, &COMMAND_UPDATE,
                 'public.account', 'name, password');
 
 @oyTable = ();
 PgLogExecute(COMMAND_UPDATE, "update account set description = 'yada, yada'",
-							  \@oyTable);
+                              \@oyTable);
 &log("AUDIT: <nothing logged>");
 
 @oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
              &COMMAND => &COMMAND_UPDATE});
 PgLogExecute(COMMAND_UPDATE, "update account set password = 'HASH2'",
-							  \@oyTable);
+                              \@oyTable);
 
 # Now tests for session/object logging
 &log("\nSession/Object Audit:\n");
@@ -1106,41 +1106,41 @@ PgAuditLogSet(CONTEXT_ROLE, 'user1', (CLASS_READ, CLASS_WRITE));
 PgSetUser('user1');
 
 PgLogExecute(COMMAND_CREATE_TABLE,
-			 'create table account_role_map (account_id int, role_id int)',
-			 'public.account_role_map');
+             'create table account_role_map (account_id int, role_id int)',
+             'public.account_role_map');
 PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.account_role_map');
 
 @oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT},
-			{&NAME => 'public.account_role_map', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT});
+             &COMMAND => &COMMAND_SELECT},
+            {&NAME => 'public.account_role_map', &TYPE => &TYPE_TABLE,
+             &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT,
-			 'select account.password, account_role_map.role_id from account' .
-			 ' inner join account_role_map' .
-			 ' on account.id = account_role_map.account_id',
-			 \@oyTable);
+             'select account.password, account_role_map.role_id from account' .
+             ' inner join account_role_map' .
+             ' on account.id = account_role_map.account_id',
+             \@oyTable);
 
 @oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
              &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select password from account',
-							  \@oyTable);
+                              \@oyTable);
 
 @oyTable = ();
 PgLogExecute(COMMAND_UPDATE, "update account set description = 'yada, yada'",
-							  \@oyTable);
+                              \@oyTable);
 &log("AUDIT: <nothing logged>");
 
 @oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
              &COMMAND => &COMMAND_SELECT, &COMMAND_LOG => &COMMAND_UPDATE});
 PgLogExecute(COMMAND_UPDATE,
-			 "update account set description = 'yada, yada'" .
-			 " where password = 'HASH2'",
-			 \@oyTable);
+             "update account set description = 'yada, yada'" .
+             " where password = 'HASH2'",
+             \@oyTable);
 
 @oyTable = ({&NAME => 'public.account', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_UPDATE});
+             &COMMAND => &COMMAND_UPDATE});
 PgLogExecute(COMMAND_UPDATE, "update account set password = 'HASH2'",
-							  \@oyTable);
+                              \@oyTable);
 
 # Test all sql commands
 &log("\nExhaustive Command Tests:\n");
@@ -1157,16 +1157,16 @@ PgLogExecute(COMMAND_CREATE_SCHEMA, $strSql, 'test');
 
 # Test COPY
 PgLogExecute(COMMAND_COPY_TO,
-			 "COPY pg_class to '" . abs_path($strTestPath) . "/class.out'");
+             "COPY pg_class to '" . abs_path($strTestPath) . "/class.out'");
              
 $strSql = 'CREATE  TABLE  test.pg_class  WITH (oids=OFF)   AS SELECT relname,' .
           ' relnamespace, reltype, reloftype, relowner, relam, relfilenode, ' .
-		  'reltablespace, relpages, reltuples, relallvisible, reltoastrelid, ' .
-		  'relhasindex, relisshared, relpersistence, relkind, relnatts, ' .
-		  'relchecks, relhasoids, relhaspkey, relhasrules, relhastriggers, ' .
-		  'relhassubclass, relrowsecurity, relispopulated, relreplident, ' .
-		  'relfrozenxid, relminmxid, relacl, reloptions ' .
-		  'FROM pg_catalog.pg_class ';
+          'reltablespace, relpages, reltuples, relallvisible, reltoastrelid, ' .
+          'relhasindex, relisshared, relpersistence, relkind, relnatts, ' .
+          'relchecks, relhasoids, relhaspkey, relhasrules, relhastriggers, ' .
+          'relhassubclass, relrowsecurity, relispopulated, relreplident, ' .
+          'relfrozenxid, relminmxid, relacl, reloptions ' .
+          'FROM pg_catalog.pg_class ';
 PgLogExecute(COMMAND_INSERT, $strSql, undef, true, false);
 PgLogExecute(COMMAND_CREATE_TABLE_AS, $strSql, 'test.pg_class', false, true);
 
@@ -1176,24 +1176,24 @@ PgLogExecute(COMMAND_INSERT, $strSql);
 
 # Test prepared SELECT
 PgLogExecute(COMMAND_PREPARE_READ,
-			 'PREPARE pgclassstmt (oid) as select *' .
-			 ' from pg_class where oid = $1');
+             'PREPARE pgclassstmt (oid) as select *' .
+             ' from pg_class where oid = $1');
 PgLogExecute(COMMAND_EXECUTE_READ,
-			 'EXECUTE pgclassstmt (1)');
+             'EXECUTE pgclassstmt (1)');
 PgLogExecute(COMMAND_DEALLOCATE,
-			 'DEALLOCATE pgclassstmt');
+             'DEALLOCATE pgclassstmt');
 
 # Test cursor
 PgLogExecute(COMMAND_BEGIN,
-			 'BEGIN');
+             'BEGIN');
 PgLogExecute(COMMAND_DECLARE_CURSOR,
-		     'DECLARE ctest SCROLL CURSOR FOR SELECT * FROM pg_class');
+             'DECLARE ctest SCROLL CURSOR FOR SELECT * FROM pg_class');
 PgLogExecute(COMMAND_FETCH,
-			 'FETCH NEXT FROM ctest');
+             'FETCH NEXT FROM ctest');
 PgLogExecute(COMMAND_CLOSE,
-			 'CLOSE ctest');
+             'CLOSE ctest');
 PgLogExecute(COMMAND_COMMIT,
-			 'COMMIT');
+             'COMMIT');
 
 # Test prepared INSERT
 $strSql = 'CREATE  TABLE  test.test_insert (id pg_catalog.int4   )  ' .
@@ -1210,9 +1210,9 @@ PgLogExecute(COMMAND_EXECUTE_WRITE, $strSql, undef, true, true);
 
 # Create a table with a primary key
 $strSql = 'CREATE  TABLE  public.test (id pg_catalog.int4   , ' .
-		  'name pg_catalog.text   COLLATE pg_catalog."default", description ' .
-		  'pg_catalog.text   COLLATE pg_catalog."default", CONSTRAINT ' .
-		  'test_pkey PRIMARY KEY (id))  WITH (oids=OFF)  ';
+          'name pg_catalog.text   COLLATE pg_catalog."default", description ' .
+          'pg_catalog.text   COLLATE pg_catalog."default", CONSTRAINT ' .
+          'test_pkey PRIMARY KEY (id))  WITH (oids=OFF)  ';
 PgLogExecute(COMMAND_CREATE_INDEX, $strSql, 'public.test_pkey', true, false);
 PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.test', false, true);
 
@@ -1227,7 +1227,7 @@ PgLogExecute(COMMAND_SELECT, 'select * from test');
 # Now grant select to audit and it should be logged
 PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.test');
 @oyTable = ({&NAME => 'public.test', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT});
+             &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select * from test', \@oyTable);
 
 # Check columns granted to public and make sure they do not log
@@ -1255,13 +1255,13 @@ PgLogExecute(COMMAND_INSERT, 'insert into test (id) values (2)');
 PgLogExecute(COMMAND_INSERT, 'insert into test (id) values (3)');
 
 $strSql = 'do $$ ' .
-		  'declare ' .
-		  '    result record;' .
-		  'begin ' .
-		  '    for result in select id from test loop ' .
-		  '        insert into test (id) values (result.id + 100); ' . 
-		  '    end loop; ' .
-		  'end; $$';
+          'declare ' .
+          '    result record;' .
+          'begin ' .
+          '    for result in select id from test loop ' .
+          '        insert into test (id) values (result.id + 100); ' . 
+          '    end loop; ' .
+          'end; $$';
 
 PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
 
@@ -1294,10 +1294,10 @@ $hStatement->finish();
 
 # Now try some DDL in a do block
 $strSql = 'do $$ ' .
-		  'begin ' .
-		  '    create table test_block (id int); ' .
-		  '    drop table test_block; ' .
-		  'end; $$';
+          'begin ' .
+          '    create table test_block (id int); ' .
+          '    drop table test_block; ' .
+          'end; $$';
 
 PgLogExecute(COMMAND_DO, $strSql, undef, true, false);
 
@@ -1310,9 +1310,9 @@ PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'public.test_block', false, false);
 
 # Generate an error in a do block and make sure the stack gets cleaned up
 $strSql = 'do $$ ' .
-		  'begin ' .
-		  '    create table bobus.test_block (id int); ' .
-		  'end; $$';
+          'begin ' .
+          '    create table bobus.test_block (id int); ' .
+          'end; $$';
 
 PgLogExecute(COMMAND_DO, $strSql, undef, undef, undef, undef, undef, true);
 # PgLogExecute(COMMAND_SELECT, 'select 1');
@@ -1325,18 +1325,21 @@ PgLogExecute(COMMAND_EXPLAIN, 'explain select 1', undef, false, true);
 # Now set grant to a specific column to audit and make sure it logs
 # Make sure the the converse is true
 PgAuditGrantSet($strAuditRole, &COMMAND_SELECT, 'public.test',
-				'name, description');
+                'name, description');
 PgLogExecute(COMMAND_SELECT, 'select id from test');
 
 @oyTable = ({&NAME => 'public.test', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT});
+             &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select name from test', \@oyTable);
 
 # Test alter and drop table statements
+$strSql = 'ALTER TABLE public.test DROP COLUMN description ';
 PgLogExecute(COMMAND_ALTER_TABLE_COLUMN,
-			 'alter table test drop description', 'public.test.description');
+             $strSql, 'public.test.description', true, false);
+PgLogExecute(COMMAND_ALTER_TABLE,
+             $strSql, 'public.test', false, true);
 @oyTable = ({&NAME => 'public.test', &TYPE => &TYPE_TABLE,
-			 &COMMAND => &COMMAND_SELECT});
+             &COMMAND => &COMMAND_SELECT});
 PgLogExecute(COMMAND_SELECT, 'select from test', \@oyTable);
 
 $strSql = 'ALTER TABLE  public.test RENAME TO test2';
@@ -1349,9 +1352,11 @@ $strSql = 'ALTER TABLE test.test2 ADD COLUMN description pg_catalog.text   ' .
           'COLLATE pg_catalog."default"';
 PgLogExecute(COMMAND_ALTER_TABLE, $strSql, 'test.test2');
 
-PgLogExecute(COMMAND_ALTER_TABLE_COLUMN,
-			 'alter table test.test2 drop description',
-			 'test.test2.description');
+$strSql = 'ALTER TABLE test.test2 DROP COLUMN description ';
+PgLogExecute(COMMAND_ALTER_TABLE_COLUMN, $strSql,
+             'test.test2.description', true, false);
+PgLogExecute(COMMAND_ALTER_TABLE, $strSql,
+             'test.test2', false, true);
 
 $strSql = 'drop table test.test2';
 PgLogExecute(COMMAND_DROP_TABLE, $strSql, 'test.test2', true, false);
@@ -1361,14 +1366,14 @@ PgLogExecute(COMMAND_DROP_TABLE_INDEX, $strSql, 'test.test_pkey', false, true);
 
 $strSql = "CREATE  FUNCTION public.int_add(IN a pg_catalog.int4 , IN b " .
           "pg_catalog.int4 ) RETURNS  pg_catalog.int4 LANGUAGE plpgsql  " .
-		  "VOLATILE  CALLED ON NULL INPUT SECURITY INVOKER COST 100   AS '" .
-		  " begin return a + b; end '";
+          "VOLATILE  CALLED ON NULL INPUT SECURITY INVOKER COST 100   AS '" .
+          " begin return a + b; end '";
 PgLogExecute(COMMAND_CREATE_FUNCTION, $strSql,
-			 'public.int_add(integer,integer)');
+             'public.int_add(integer,integer)');
 PgLogExecute(COMMAND_SELECT, "select int_add(1, 1)",
-							 undef, true, false);
+                             undef, true, false);
 PgLogExecute(COMMAND_EXECUTE_FUNCTION, "select int_add(1, 1)",
-									   'public.int_add', false, true);
+                                       'public.int_add', false, true);
 
 $strSql = "CREATE AGGREGATE public.sum_test(  pg_catalog.int4) " .
           "(SFUNC=public.int_add, STYPE=pg_catalog.int4, INITCOND='0')";
@@ -1394,7 +1399,7 @@ PgLogExecute(COMMAND_ALTER_CONVERSION, $strSql, 'public.conversion_test2');
 
 PgLogExecute(COMMAND_CREATE_DATABASE, "CREATE DATABASE database_test");
 PgLogExecute(COMMAND_ALTER_DATABASE,
-			 "ALTER DATABASE database_test rename to database_test2");
+             "ALTER DATABASE database_test rename to database_test2");
 PgLogExecute(COMMAND_DROP_DATABASE, "DROP DATABASE database_test2");
 
 # Make sure there are no more audit events pending in the postgres log
@@ -1403,5 +1408,5 @@ PgLogWait();
 # Stop the database
 if (!$bNoCleanup)
 {
-	PgDrop();
+    PgDrop();
 }
