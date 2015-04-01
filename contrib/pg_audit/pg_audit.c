@@ -168,6 +168,8 @@ typedef struct AuditEventStackItem
 
 	AuditEvent auditEvent;
 
+	int64 stackId;
+
 	MemoryContext contextAudit;
 	MemoryContextCallback contextCallback;
 } AuditEventStackItem;
@@ -183,8 +185,9 @@ static bool internalStatement = false;
  * Track running total for statements and substatements and whether or not
  * anything has been logged since this statement began.
  */
-static uint64 statementTotal = 0;
-static uint64 substatementTotal = 0;
+static int64 statementTotal = 0;
+static int64 substatementTotal = 0;
+static int64 stackTotal = 0;
 
 static bool statementLogged = false;
 
@@ -212,7 +215,7 @@ stack_free(void *stackFree)
 		/* Check if this item matches the item to be freed */
 		if (nextItem == (AuditEventStackItem *)stackFree)
 		{
-			/* Move top of stack the the item after the freed item */
+			/* Move top of stack to the item after the freed item */
 			auditEventStack = nextItem->next;
 
 			/* If the stack is not empty */
@@ -268,6 +271,12 @@ stack_push()
 		stackItem->next = NULL;
 
 	/*
+	 * Create the unique stackId - used to keep the stack sane when memory
+	 * contexts are freed unexpectedly.
+	 */
+	stackItem->stackId = ++stackTotal;
+
+	/*
 	 * Setup a callback in case an error happens.  stack_free() will truncate
 	 * the stack at this item.
 	 */
@@ -291,14 +300,13 @@ stack_push()
  * contains it.  The callback to stack_free() does the actual pop.
  */
 static void
-stack_pop()
+stack_pop(int64 stackId)
 {
-	/* Error if the stack is already empty */
-	if (auditEventStack == NULL)
-		elog(ERROR, "pg_audit stack is already empty");
-
-	/* Switch the old memory context and delete the audit context */
-	MemoryContextDelete(auditEventStack->contextAudit);
+	/* Make sure what we want to delete is at the top of the stack */
+	if (auditEventStack != NULL && auditEventStack->stackId == stackId)
+	{
+		MemoryContextDelete(auditEventStack->contextAudit);
+	}
 }
 
 /*
@@ -1075,7 +1083,7 @@ log_function_execute(Oid objectId)
 	log_audit_event(stackItem);
 
 	/* Pop audit event from the stack */
-	stack_pop();
+	stack_pop(stackItem->stackId);
 }
 
 /*
@@ -1253,7 +1261,7 @@ pgaudit_ExecutorEnd_hook(QueryDesc *queryDesc)
 	/* Pop the audit event off the stack */
 	if (!internalStatement)
 	{
-		stack_pop();
+		stack_pop(auditEventStack->stackId);
 	}
 }
 
@@ -1269,6 +1277,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 							char *completionTag)
 {
 	AuditEventStackItem *stackItem = NULL;
+	int64 stackId;
 
 	/* Allocate the audit event */
 	if (!IsAbortedTransactionBlockState())
@@ -1286,6 +1295,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 		else
 			stackItem = stack_push();
 
+		stackId = stackItem->stackId;
 		stackItem->auditEvent.logStmtLevel = GetCommandLogLevel(parsetree);
 		stackItem->auditEvent.commandTag = nodeTag(parsetree);
 		stackItem->auditEvent.command = CreateCommandTag(parsetree);
@@ -1322,13 +1332,7 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
 			!IsAbortedTransactionBlockState())
 			log_audit_event(stackItem);
 
-		if (context == PROCESS_UTILITY_TOPLEVEL)
-		{
-			while (auditEventStack != NULL)
-				stack_pop();
-		}
-		else
-			stack_pop();
+		stack_pop(stackId);
 	}
 }
 

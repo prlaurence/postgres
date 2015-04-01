@@ -1292,6 +1292,27 @@ PgLogExecute(COMMAND_SELECT, $strSql, undef, false, false, undef, "103");
 
 $hStatement->finish();
 
+# Cursors in a function block
+$strSql = "CREATE  FUNCTION public.test() RETURNS  pg_catalog.int4 LANGUAGE " .
+		  "plpgsql  VOLATILE  CALLED ON NULL INPUT SECURITY INVOKER COST 100 " .
+		  "  AS ' declare cur1 cursor for select * from hoge; tmp int; begin " .
+		  "create table hoge (id int); open cur1; fetch cur1 into tmp; close " .
+		  "cur1; return tmp; end'";
+
+PgLogExecute(COMMAND_CREATE_FUNCTION, $strSql, 'public.test()');
+
+$strSql = 'select public.test()';
+PgLogExecute(COMMAND_SELECT, $strSql, undef, true, false);
+PgLogExecute(COMMAND_EXECUTE_FUNCTION, $strSql, 'public.test', false, false);
+
+$strSql = 'CREATE  TABLE  public.hoge (id pg_catalog.int4   )' .
+          '  WITH (oids=OFF)  ';
+PgLogExecute(COMMAND_CREATE_TABLE, $strSql, 'public.hoge', false, false);
+
+$strSql = 'select * from hoge';
+PgLogExecute(COMMAND_SELECT, $strSql, undef, false, true);
+#PgLogExecute(COMMAND_SELECT, 'select public.test()');
+
 # Now try some DDL in a do block
 $strSql = 'do $$ ' .
 		  'begin ' .

@@ -68,7 +68,7 @@
           </listitem>
           <listitem>
             <para>
-              <literal>PARAMETER</literal> - Parameters that were passed for the statement.  Parameters immediately follow the statement text. 
+              <literal>PARAMETER</literal> - Parameters that were passed for the statement.  Parameters immediately follow the statement text.
             </para>
           </listitem>
           <listitem>
@@ -94,9 +94,9 @@ pg_audit.log = 'write, ddl'
 pg_audit.log = 'all, -misc'
           </programlisting>
       </para>
-      
+
       <para>
-      Note that <literal>pg_audit.log</literal> can be set globally (in 
+      Note that <literal>pg_audit.log</literal> can be set globally (in
       <filename>postgresql.conf</filename>), at the database level (using
       <literal>alter database ... set</literal>), or at the role level (using
       <literal>alter role ... set</literal>).
@@ -178,7 +178,7 @@ grant select, delete
       </programlisting>
 
       <para>
-      Note that <literal>pg_audit.role</literal> can be set globally (in 
+      Note that <literal>pg_audit.role</literal> can be set globally (in
       <filename>postgresql.conf</filename>), at the database level (using
       <literal>alter database ... set</literal>), or at the role level (using
       <literal>alter role ... set</literal>).
@@ -275,9 +275,8 @@ AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password,
 
       <note>
         <para>
-          Output is not in compliant CSV format.  If machine-readability is
-          required then consider setting
-          <literal>log_destination = 'csvlog'</literal>.
+          Output is compliant CSV format only if the log line prefix portion
+          of each log entry is removed.
         </para>
       </note>
 
@@ -286,6 +285,19 @@ AUDIT: OBJECT,READ,SELECT,TABLE,public.account_role_map,select account.password,
           <para>
             <literal>AUDIT_TYPE</literal> - <literal>SESSION</literal> or
             <literal>OBJECT</literal>.
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            <literal>STATEMENT_ID</literal> - Unique statement ID for this
+            session.  Each statement ID represents a backend call.
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            <literal>SUBSTATEMENT_ID</literal> - Sequential ID for each
+            substatement within the main statement.  For example, calling
+            a function from a query.
           </para>
         </listitem>
         <listitem>
