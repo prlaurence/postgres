@@ -2083,7 +2083,7 @@ StoreConstraints(Relation rel, List *cooked_constraints, bool is_internal)
 	int			numchecks = 0;
 	ListCell   *lc;
 
-	if (list_length(cooked_constraints) == 0)
+	if (cooked_constraints == NIL)
 		return;					/* nothing to do */
 
 	/*
@@ -2266,13 +2266,6 @@ AddRelationNewConstraints(Relation rel,
 			 */
 			expr = stringToNode(cdef->cooked_expr);
 		}
-
-		/* Don't allow NOT VALID for foreign tables */
-		if (cdef->skip_validation &&
-			rel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("CHECK constraints on foreign tables cannot be marked NOT VALID")));
 
 		/*
 		 * Check name uniqueness, or generate a name if none was given.

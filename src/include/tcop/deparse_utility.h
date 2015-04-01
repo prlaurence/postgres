@@ -14,7 +14,7 @@
 
 #include "access/attnum.h"
 #include "nodes/nodes.h"
-#include "utils/aclchk.h"
+#include "utils/aclchk_internal.h"
 
 
 /*
@@ -32,7 +32,8 @@ typedef enum StashedCommandType
 	SCT_Grant,
 	SCT_AlterOpFamily,
 	SCT_AlterDefaultPrivileges,
-	SCT_CreateOpClass
+	SCT_CreateOpClass,
+	SCT_AlterTSConfig
 } StashedCommandType;
 
 /*
@@ -40,8 +41,7 @@ typedef enum StashedCommandType
  */
 typedef struct StashedATSubcmd
 {
-	AttrNumber		attnum;	/* affected column number */
-	Oid				oid;	/* affected constraint, default value or index */
+	ObjectAddress	address; /* affected column, constraint, index, ... */
 	Node		   *parsetree;
 } StashedATSubcmd;
 
@@ -54,32 +54,37 @@ typedef struct StashedCommand
 
 	union
 	{
-		struct SimpleCommand
+		/* most commands */
+		struct
 		{
 			ObjectAddress address;
 			ObjectAddress secondaryObject;
 		} simple;
 
-		struct AlterTableCommand
+		/* ALTER TABLE, and internal uses thereof */
+		struct
 		{
 			Oid		objectId;
 			Oid		classId;
 			List   *subcmds;
 		} alterTable;
 
-		struct GrantCommand
+		/* GRANT / REVOKE */
+		struct
 		{
 			InternalGrant *istmt;
 			const char *type;
 		} grant;
 
-		struct AlterOpFamily
+		/* ALTER OPERATOR FAMILY */
+		struct
 		{
 			Oid		opfamOid;
 			List   *operators;
 			List   *procedures;
 		} opfam;
 
+		/* CREATE OPERATOR CLASS */
 		struct
 		{
 			Oid		opcOid;
@@ -87,6 +92,15 @@ typedef struct StashedCommand
 			List   *procedures;
 		} createopc;
 
+		/* ALTER TEXT SEARCH CONFIGURATION ADD/ALTER/DROP MAPPING */
+		struct
+		{
+			Oid		tscfgOid;
+			Oid	   *dictIds;
+			int		ndicts;
+		} atscfg;
+
+		/* ALTER DEFAULT PRIVILEGES */
 		struct
 		{
 			char   *objtype;

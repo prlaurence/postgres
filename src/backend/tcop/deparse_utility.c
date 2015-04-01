@@ -4,7 +4,7 @@
  *	  Functions to convert utility commands to machine-parseable
  *	  representation
  *
- * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * NOTES
@@ -1602,6 +1602,98 @@ deparse_DefineStmt(Oid objectId, Node *parsetree, ObjectAddress secondaryObj)
 	}
 
 	return defStmt;
+}
+
+static ObjTree *
+deparse_AlterTSConfigurationStmt(StashedCommand *cmd)
+{
+	AlterTSConfigurationStmt *node = (AlterTSConfigurationStmt *) cmd->parsetree;
+	ObjTree *config;
+	const char *const fmtcommon = "ALTER TEXT SEARCH CONFIGURATION %{identity}D";
+	char	   *fmtrest;
+	List	   *list;
+	ListCell   *cell;
+	int			i;
+
+	/* determine the format string appropriate to each subcommand */
+	switch (node->kind)
+	{
+		case ALTER_TSCONFIG_ADD_MAPPING:
+			fmtrest = "ADD MAPPING FOR %{tokentype:, }I WITH %{dictionaries:, }D";
+			break;
+
+		case ALTER_TSCONFIG_DROP_MAPPING:
+			fmtrest = "DROP MAPPING %{if_exists}s FOR %{tokentype}I";
+			break;
+
+		case ALTER_TSCONFIG_ALTER_MAPPING_FOR_TOKEN:
+			fmtrest = "ALTER MAPPING FOR %{tokentype:, }I WITH %{dictionaries:, }D";
+			break;
+
+		case ALTER_TSCONFIG_REPLACE_DICT:
+			fmtrest = "ALTER MAPPING REPLACE %{old_dictionary}D WITH %{new_dictionary}D";
+			break;
+
+		case ALTER_TSCONFIG_REPLACE_DICT_FOR_TOKEN:
+			fmtrest = "ALTER MAPPING FOR %{tokentype:, }I REPLACE %{old_dictionary}D WITH %{new_dictionary}D";
+			break;
+	}
+	config = new_objtree_VA(psprintf("%s %s", fmtcommon, fmtrest),
+							1, "identity",
+							ObjTypeObject,
+							new_objtree_for_qualname_id(TSConfigRelationId,
+														cmd->d.atscfg.tscfgOid));
+
+	/* Add the affected token list, for subcommands that have one */
+	if (node->kind == ALTER_TSCONFIG_ADD_MAPPING ||
+		node->kind == ALTER_TSCONFIG_ALTER_MAPPING_FOR_TOKEN ||
+		node->kind == ALTER_TSCONFIG_REPLACE_DICT_FOR_TOKEN ||
+		node->kind == ALTER_TSCONFIG_DROP_MAPPING)
+	{
+		list = NIL;
+		foreach(cell, node->tokentype)
+			list = lappend(list, new_string_object(strVal(lfirst(cell))));
+		append_array_object(config, "tokentype", list);
+	}
+
+	/* add further subcommand-specific elements */
+	if (node->kind == ALTER_TSCONFIG_ADD_MAPPING ||
+		node->kind == ALTER_TSCONFIG_ALTER_MAPPING_FOR_TOKEN)
+	{
+		/* ADD MAPPING and ALTER MAPPING FOR need a list of dictionaries */
+		list = NIL;
+		for (i = 0; i < cmd->d.atscfg.ndicts; i++)
+		{
+			ObjTree	*dictobj;
+
+			dictobj = new_objtree_for_qualname_id(TSDictionaryRelationId,
+												  cmd->d.atscfg.dictIds[i]);
+			list = lappend(list,
+						   new_object_object(dictobj));
+		}
+		append_array_object(config, "dictionaries", list);
+	}
+	else if (node->kind == ALTER_TSCONFIG_REPLACE_DICT ||
+			 node->kind == ALTER_TSCONFIG_REPLACE_DICT_FOR_TOKEN)
+	{
+		/* the REPLACE forms want old and new dictionaries */
+		Assert(cmd->d.atscfg.ndicts == 2);
+		append_object_object(config, "old_dictionary",
+							 new_objtree_for_qualname_id(TSDictionaryRelationId,
+														 cmd->d.atscfg.dictIds[0]));
+		append_object_object(config, "new_dictionary",
+							 new_objtree_for_qualname_id(TSDictionaryRelationId,
+														 cmd->d.atscfg.dictIds[1]));
+	}
+	else
+	{
+		/* DROP wants the IF EXISTS clause */
+		Assert(node->kind == ALTER_TSCONFIG_DROP_MAPPING);
+		append_string_object(config, "if_exists",
+							 node->missing_ok ? "IF EXISTS" : "");
+	}
+
+	return config;
 }
 
 /*
@@ -6199,7 +6291,7 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 
 			case AT_AddIndex:
 				{
-					Oid			idxOid = substashed->oid;
+					Oid			idxOid = substashed->address.objectId;
 					IndexStmt  *istmt;
 					Relation	idx;
 					const char *idxname;
@@ -6232,7 +6324,7 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 			case AT_AddConstraintRecurse:
 				{
 					/* XXX need to set the "recurse" bit somewhere? */
-					Oid			constrOid = substashed->oid;
+					Oid			constrOid = substashed->address.objectId;
 
 					tmp = new_objtree_VA("ADD CONSTRAINT %{name}I %{definition}s",
 										 3, "type", ObjTypeString, "add constraint",
@@ -6245,7 +6337,7 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 
 			case AT_AlterConstraint:
 				{
-					Oid		constrOid = substashed->oid;
+					Oid		constrOid = substashed->address.objectId;
 					Constraint *c = (Constraint *) subcmd->def;
 
 					/* if no constraint was altered, silently skip it */
@@ -6283,9 +6375,10 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 			case AT_AlterColumnType:
 				{
 					TupleDesc tupdesc = RelationGetDescr(rel);
-					Form_pg_attribute att = tupdesc->attrs[substashed->attnum - 1];
+					Form_pg_attribute att;
 					ColumnDef	   *def;
 
+					att = tupdesc->attrs[substashed->address.objectSubId - 1];
 					def = (ColumnDef *) subcmd->def;
 					Assert(IsA(def, ColumnDef));
 
@@ -6319,16 +6412,24 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 					if (!istype)
 					{
 						/*
-						 * Error out if the USING clause was used.  We cannot use
-						 * it directly here, because it needs to run through
-						 * transformExpr() before being usable for ruleutils.c, and
-						 * we're not in a position to transform it ourselves.  To
-						 * fix this problem, tablecmds.c needs to be modified to store
-						 * the transformed expression somewhere in the StashedATSubcmd.
+						 * If there's a USING clause, transformAlterTableStmt
+						 * ran it through transformExpr and stored the
+						 * resulting node in cooked_default, which we can use
+						 * here.
 						 */
 						tmp2 = new_objtree_VA("USING %{expression}s", 0);
 						if (def->raw_default)
-							elog(ERROR, "unimplemented deparse of ALTER TABLE TYPE USING");
+						{
+							Datum	deparsed;
+							char   *defexpr;
+
+							defexpr = nodeToString(def->cooked_default);
+							deparsed = DirectFunctionCall2(pg_get_expr,
+														   CStringGetTextDatum(defexpr),
+														   RelationGetRelid(rel));
+							append_string_object(tmp2, "expression",
+												 TextDatumGetCString(deparsed));
+						}
 						else
 							append_bool_object(tmp2, "present", false);
 						append_object_object(tmp, "using", tmp2);
@@ -6497,7 +6598,7 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 									 2, "type", ObjTypeString, "inherit",
 									 "parent", ObjTypeObject,
 									 new_objtree_for_qualname_id(RelationRelationId,
-																 substashed->oid));
+																 substashed->address.objectId));
 				subcmds = lappend(subcmds, new_object_object(tmp));
 				break;
 
@@ -6506,7 +6607,7 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 									 2, "type", ObjTypeString, "drop inherit",
 									 "parent", ObjTypeObject,
 									 new_objtree_for_qualname_id(RelationRelationId,
-																 substashed->oid));
+																 substashed->address.objectId));
 				subcmds = lappend(subcmds, new_object_object(tmp));
 				break;
 
@@ -6514,7 +6615,7 @@ deparse_AlterTableStmt(StashedCommand *cmd)
 				tmp = new_objtree_VA("OF %{type_of}T",
 									 2, "type", ObjTypeString, "add of",
 									 "type_of", ObjTypeObject,
-									 new_objtree_for_type(substashed->oid, -1));
+									 new_objtree_for_type(substashed->address.objectId, -1));
 				subcmds = lappend(subcmds, new_object_object(tmp));
 				break;
 
@@ -6769,7 +6870,8 @@ deparse_simple_command(StashedCommand *cmd)
 			break;
 
 		case T_AlterTSConfigurationStmt:
-			elog(ERROR, "unimplemented deparse of %s", CreateCommandTag(parsetree));
+			/* handled elsewhere */
+			elog(ERROR, "unexpected command type %s", CreateCommandTag(parsetree));
 			break;
 
 		case T_DropStmt:
@@ -6832,8 +6934,7 @@ deparse_simple_command(StashedCommand *cmd)
 }
 
 /*
- * Given a utility command parsetree and the OID of the corresponding object,
- * return a JSON representation of the command.
+ * Given a StashedCommand, return a JSON representation of the command.
  *
  * The command is expanded fully, so that there are no ambiguities even in the
  * face of search_path changes.
@@ -6894,6 +6995,9 @@ deparse_utility_command(StashedCommand *cmd)
 			break;
 		case SCT_AlterDefaultPrivileges:
 			tree = deparse_AlterDefaultPrivilegesStmt(cmd);
+			break;
+		case SCT_AlterTSConfig:
+			tree = deparse_AlterTSConfigurationStmt(cmd);
 			break;
 		default:
 			elog(ERROR, "unexpected deparse node type %d", cmd->type);

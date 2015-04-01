@@ -2762,6 +2762,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->relation = $4;
 					n->tableElts = $6;
 					n->inhRelations = $8;
+					n->ofTypename = NULL;
 					n->constraints = NIL;
 					n->options = $9;
 					n->oncommit = $10;
@@ -2778,6 +2779,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					n->relation = $7;
 					n->tableElts = $9;
 					n->inhRelations = $11;
+					n->ofTypename = NULL;
 					n->constraints = NIL;
 					n->options = $12;
 					n->oncommit = $13;
@@ -2792,6 +2794,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					$4->relpersistence = $2;
 					n->relation = $4;
 					n->tableElts = $7;
+					n->inhRelations = NIL;
 					n->ofTypename = makeTypeNameFromNameList($6);
 					n->ofTypename->location = @6;
 					n->constraints = NIL;
@@ -2808,6 +2811,7 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					$7->relpersistence = $2;
 					n->relation = $7;
 					n->tableElts = $10;
+					n->inhRelations = NIL;
 					n->ofTypename = makeTypeNameFromNameList($9);
 					n->ofTypename->location = @9;
 					n->constraints = NIL;
@@ -4360,32 +4364,42 @@ AlterForeignServerStmt: ALTER SERVER name foreign_server_version alter_generic_o
 CreateForeignTableStmt:
 		CREATE FOREIGN TABLE qualified_name
 			'(' OptTableElementList ')'
-			SERVER name create_generic_options
+			OptInherit SERVER name create_generic_options
 				{
 					CreateForeignTableStmt *n = makeNode(CreateForeignTableStmt);
 					$4->relpersistence = RELPERSISTENCE_PERMANENT;
 					n->base.relation = $4;
 					n->base.tableElts = $6;
-					n->base.inhRelations = NIL;
+					n->base.inhRelations = $8;
+					n->base.ofTypename = NULL;
+					n->base.constraints = NIL;
+					n->base.options = NIL;
+					n->base.oncommit = ONCOMMIT_NOOP;
+					n->base.tablespacename = NULL;
 					n->base.if_not_exists = false;
 					/* FDW-specific data */
-					n->servername = $9;
-					n->options = $10;
+					n->servername = $10;
+					n->options = $11;
 					$$ = (Node *) n;
 				}
 		| CREATE FOREIGN TABLE IF_P NOT EXISTS qualified_name
 			'(' OptTableElementList ')'
-			SERVER name create_generic_options
+			OptInherit SERVER name create_generic_options
 				{
 					CreateForeignTableStmt *n = makeNode(CreateForeignTableStmt);
 					$7->relpersistence = RELPERSISTENCE_PERMANENT;
 					n->base.relation = $7;
 					n->base.tableElts = $9;
-					n->base.inhRelations = NIL;
+					n->base.inhRelations = $11;
+					n->base.ofTypename = NULL;
+					n->base.constraints = NIL;
+					n->base.options = NIL;
+					n->base.oncommit = ONCOMMIT_NOOP;
+					n->base.tablespacename = NULL;
 					n->base.if_not_exists = true;
 					/* FDW-specific data */
-					n->servername = $12;
-					n->options = $13;
+					n->servername = $13;
+					n->options = $14;
 					$$ = (Node *) n;
 				}
 		;
@@ -7692,6 +7706,17 @@ RenameStmt: ALTER AGGREGATE func_name aggr_args RENAME TO name
 					n->relation = $3;
 					n->subname = $6;
 					n->newname = $8;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLE IF_P EXISTS relation_expr RENAME CONSTRAINT name TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_TABCONSTRAINT;
+					n->relation = $5;
+					n->subname = $8;
+					n->newname = $10;
+					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
 			| ALTER FOREIGN TABLE relation_expr RENAME opt_column name TO name
@@ -8893,6 +8918,7 @@ AlterTSConfigurationStmt:
 			ALTER TEXT_P SEARCH CONFIGURATION any_name ADD_P MAPPING FOR name_list any_with any_name_list
 				{
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
+					n->kind = ALTER_TSCONFIG_ADD_MAPPING;
 					n->cfgname = $5;
 					n->tokentype = $9;
 					n->dicts = $11;
@@ -8903,6 +8929,7 @@ AlterTSConfigurationStmt:
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name ALTER MAPPING FOR name_list any_with any_name_list
 				{
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
+					n->kind = ALTER_TSCONFIG_ALTER_MAPPING_FOR_TOKEN;
 					n->cfgname = $5;
 					n->tokentype = $9;
 					n->dicts = $11;
@@ -8913,6 +8940,7 @@ AlterTSConfigurationStmt:
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name ALTER MAPPING REPLACE any_name any_with any_name
 				{
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
+					n->kind = ALTER_TSCONFIG_REPLACE_DICT;
 					n->cfgname = $5;
 					n->tokentype = NIL;
 					n->dicts = list_make2($9,$11);
@@ -8923,6 +8951,7 @@ AlterTSConfigurationStmt:
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name ALTER MAPPING FOR name_list REPLACE any_name any_with any_name
 				{
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
+					n->kind = ALTER_TSCONFIG_REPLACE_DICT_FOR_TOKEN;
 					n->cfgname = $5;
 					n->tokentype = $9;
 					n->dicts = list_make2($11,$13);
@@ -8933,6 +8962,7 @@ AlterTSConfigurationStmt:
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name DROP MAPPING FOR name_list
 				{
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
+					n->kind = ALTER_TSCONFIG_DROP_MAPPING;
 					n->cfgname = $5;
 					n->tokentype = $9;
 					n->missing_ok = false;
@@ -8941,6 +8971,7 @@ AlterTSConfigurationStmt:
 			| ALTER TEXT_P SEARCH CONFIGURATION any_name DROP MAPPING IF_P EXISTS FOR name_list
 				{
 					AlterTSConfigurationStmt *n = makeNode(AlterTSConfigurationStmt);
+					n->kind = ALTER_TSCONFIG_DROP_MAPPING;
 					n->cfgname = $5;
 					n->tokentype = $11;
 					n->missing_ok = true;
@@ -9034,12 +9065,10 @@ VacuumStmt: VACUUM opt_full opt_freeze opt_verbose
 					n->options = VACOPT_VACUUM;
 					if ($2)
 						n->options |= VACOPT_FULL;
+					if ($3)
+						n->options |= VACOPT_FREEZE;
 					if ($4)
 						n->options |= VACOPT_VERBOSE;
-					n->freeze_min_age = $3 ? 0 : -1;
-					n->freeze_table_age = $3 ? 0 : -1;
-					n->multixact_freeze_min_age = $3 ? 0 : -1;
-					n->multixact_freeze_table_age = $3 ? 0 : -1;
 					n->relation = NULL;
 					n->va_cols = NIL;
 					$$ = (Node *)n;
@@ -9050,12 +9079,10 @@ VacuumStmt: VACUUM opt_full opt_freeze opt_verbose
 					n->options = VACOPT_VACUUM;
 					if ($2)
 						n->options |= VACOPT_FULL;
+					if ($3)
+						n->options |= VACOPT_FREEZE;
 					if ($4)
 						n->options |= VACOPT_VERBOSE;
-					n->freeze_min_age = $3 ? 0 : -1;
-					n->freeze_table_age = $3 ? 0 : -1;
-					n->multixact_freeze_min_age = $3 ? 0 : -1;
-					n->multixact_freeze_table_age = $3 ? 0 : -1;
 					n->relation = $5;
 					n->va_cols = NIL;
 					$$ = (Node *)n;
@@ -9066,30 +9093,16 @@ VacuumStmt: VACUUM opt_full opt_freeze opt_verbose
 					n->options |= VACOPT_VACUUM;
 					if ($2)
 						n->options |= VACOPT_FULL;
+					if ($3)
+						n->options |= VACOPT_FREEZE;
 					if ($4)
 						n->options |= VACOPT_VERBOSE;
-					n->freeze_min_age = $3 ? 0 : -1;
-					n->freeze_table_age = $3 ? 0 : -1;
-					n->multixact_freeze_min_age = $3 ? 0 : -1;
-					n->multixact_freeze_table_age = $3 ? 0 : -1;
 					$$ = (Node *)n;
 				}
 			| VACUUM '(' vacuum_option_list ')'
 				{
 					VacuumStmt *n = makeNode(VacuumStmt);
 					n->options = VACOPT_VACUUM | $3;
-					if (n->options & VACOPT_FREEZE)
-					{
-						n->freeze_min_age = n->freeze_table_age = 0;
-						n->multixact_freeze_min_age = 0;
-						n->multixact_freeze_table_age = 0;
-					}
-					else
-					{
-						n->freeze_min_age = n->freeze_table_age = -1;
-						n->multixact_freeze_min_age = -1;
-						n->multixact_freeze_table_age = -1;
-					}
 					n->relation = NULL;
 					n->va_cols = NIL;
 					$$ = (Node *) n;
@@ -9098,18 +9111,6 @@ VacuumStmt: VACUUM opt_full opt_freeze opt_verbose
 				{
 					VacuumStmt *n = makeNode(VacuumStmt);
 					n->options = VACOPT_VACUUM | $3;
-					if (n->options & VACOPT_FREEZE)
-					{
-						n->freeze_min_age = n->freeze_table_age = 0;
-						n->multixact_freeze_min_age = 0;
-						n->multixact_freeze_table_age = 0;
-					}
-					else
-					{
-						n->freeze_min_age = n->freeze_table_age = -1;
-						n->multixact_freeze_min_age = -1;
-						n->multixact_freeze_table_age = -1;
-					}
 					n->relation = $5;
 					n->va_cols = $6;
 					if (n->va_cols != NIL)	/* implies analyze */
@@ -9137,10 +9138,6 @@ AnalyzeStmt:
 					n->options = VACOPT_ANALYZE;
 					if ($2)
 						n->options |= VACOPT_VERBOSE;
-					n->freeze_min_age = -1;
-					n->freeze_table_age = -1;
-					n->multixact_freeze_min_age = -1;
-					n->multixact_freeze_table_age = -1;
 					n->relation = NULL;
 					n->va_cols = NIL;
 					$$ = (Node *)n;
@@ -9151,10 +9148,6 @@ AnalyzeStmt:
 					n->options = VACOPT_ANALYZE;
 					if ($2)
 						n->options |= VACOPT_VERBOSE;
-					n->freeze_min_age = -1;
-					n->freeze_table_age = -1;
-					n->multixact_freeze_min_age = -1;
-					n->multixact_freeze_table_age = -1;
 					n->relation = $3;
 					n->va_cols = $4;
 					$$ = (Node *)n;

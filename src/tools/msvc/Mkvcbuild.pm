@@ -13,7 +13,6 @@ use Project;
 use Solution;
 use Cwd;
 use File::Copy;
-use File::Basename;
 use Config;
 use VSObjectFactory;
 use List::Util qw(first);
@@ -66,7 +65,8 @@ my $frontend_extraincludes = {
 	'initdb' => ['src\timezone'],
 	'psql'   => [ 'src\bin\pg_dump', 'src\backend' ] };
 my $frontend_extrasource = { 'psql' => ['src\bin\psql\psqlscan.l'] };
-my @frontend_excludes = ('pgevent', 'pg_basebackup', 'pg_dump', 'scripts');
+my @frontend_excludes =
+  ('pgevent', 'pg_basebackup', 'pg_rewind', 'pg_dump', 'scripts');
 
 sub mkvcbuild
 {
@@ -423,6 +423,12 @@ sub mkvcbuild
 	$pgrecvlogical->AddFile('src\bin\pg_basebackup\pg_recvlogical.c');
 	$pgrecvlogical->AddLibrary('ws2_32.lib');
 
+	my $pgrewind = AddSimpleFrontend('pg_rewind', 1);
+	$pgrewind->{name} = 'pg_rewind';
+	$pgrewind->AddFile('src\backend\access\transam\xlogreader.c');
+	$pgrewind->AddLibrary('ws2_32.lib');
+	$pgrewind->AddDefine('FRONTEND');
+
 	my $pgevent = $solution->AddProject('pgevent', 'dll', 'bin');
 	$pgevent->AddFiles('src\bin\pgevent', 'pgevent.c', 'pgmsgevent.rc');
 	$pgevent->AddResourceFile('src\bin\pgevent', 'Eventlog message formatter',
@@ -628,15 +634,11 @@ sub mkvcbuild
 	  (grep { $_->{name} eq 'pg_xlogdump' }
 		  @{ $solution->{projects}->{contrib} })[0];
 	$pg_xlogdump->AddDefine('FRONTEND');
-	foreach my $xf (glob('src/backend/access/rmgrdesc/*desc.c'))
+	foreach my $xf (glob('src\\backend\\access\\rmgrdesc\\*desc.c'))
 	{
-		my $bf = basename $xf;
-		copy($xf, "contrib/pg_xlogdump/$bf");
-		$pg_xlogdump->AddFile("contrib\\pg_xlogdump\\$bf");
+		$pg_xlogdump->AddFile($xf)
 	}
-	copy(
-		'src/backend/access/transam/xlogreader.c',
-		'contrib/pg_xlogdump/xlogreader.c');
+	$pg_xlogdump->AddFile('src\backend\access\transam\xlogreader.c');
 
 	$solution->Save();
 	return $solution->{vcver};

@@ -3300,10 +3300,6 @@ _copyVacuumStmt(const VacuumStmt *from)
 	VacuumStmt *newnode = makeNode(VacuumStmt);
 
 	COPY_SCALAR_FIELD(options);
-	COPY_SCALAR_FIELD(freeze_min_age);
-	COPY_SCALAR_FIELD(freeze_table_age);
-	COPY_SCALAR_FIELD(multixact_freeze_min_age);
-	COPY_SCALAR_FIELD(multixact_freeze_table_age);
 	COPY_NODE_FIELD(relation);
 	COPY_NODE_FIELD(va_cols);
 
@@ -3883,6 +3879,7 @@ _copyAlterTSConfigurationStmt(const AlterTSConfigurationStmt *from)
 {
 	AlterTSConfigurationStmt *newnode = makeNode(AlterTSConfigurationStmt);
 
+	COPY_SCALAR_FIELD(kind);
 	COPY_NODE_FIELD(cfgname);
 	COPY_NODE_FIELD(tokentype);
 	COPY_NODE_FIELD(dicts);

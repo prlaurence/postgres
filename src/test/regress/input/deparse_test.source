@@ -54,4 +54,4 @@ create role view_user2;
 
 SELECT * FROM pg_deparse.output_commands();
 
-\! @abs_builddir@/../../bin/psql/psql --dbname=@deparse_test_db@ -e < ./sql/deparse_dump.sql
+\! @abs_builddir@/../../bin/psql/psql --dbname=@deparse_test_db@ -e < ./sql/deparse_dump.sql > results/deparse_dump.out 2>&1

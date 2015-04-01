@@ -228,6 +228,7 @@ ALTER TABLE constraint_rename_test RENAME CONSTRAINT con3 TO con3foo; -- ok
 \d constraint_rename_test2
 DROP TABLE constraint_rename_test2;
 DROP TABLE constraint_rename_test;
+ALTER TABLE IF EXISTS constraint_not_exist RENAME CONSTRAINT con3 TO con3foo; -- ok
 ALTER TABLE IF EXISTS constraint_rename_test ADD CONSTRAINT con4 UNIQUE (a);
 
 -- FOREIGN KEY CONSTRAINT adding TEST
@@ -1288,7 +1289,9 @@ where virtualtransaction = (
         from pg_locks
         where transactionid = txid_current()::integer)
 and locktype = 'relation'
-and relnamespace NOT IN (select oid from pg_namespace where nspname LIKE 'pg\_%')
+and relnamespace NOT IN (
+	select oid from pg_namespace
+	where nspname IN ('pg_catalog', 'pg_deparse'))
 and c.relname != 'my_locks'
 group by c.relname;
 

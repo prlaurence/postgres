@@ -17,7 +17,7 @@
 #include "catalog/objectaddress.h"
 #include "catalog/pg_event_trigger.h"
 #include "nodes/parsenodes.h"
-#include "utils/aclchk.h"
+#include "utils/aclchk_internal.h"
 
 typedef struct EventTriggerData
 {
@@ -61,15 +61,16 @@ extern bool trackDroppedObjectsNeeded(void);
 extern void EventTriggerSQLDropAddObject(const ObjectAddress *object,
 							 bool original, bool normal);
 
-extern void EventTriggerStashCommand(ObjectAddress address,
-						 ObjectAddress *secondaryObject, Node *parsetree);
 extern void EventTriggerInhibitCommandCollection(void);
 extern void EventTriggerUndoInhibitCommandCollection(void);
+
+extern void EventTriggerStashCommand(ObjectAddress address,
+						 ObjectAddress secondaryObject, Node *parsetree);
 
 extern void EventTriggerAlterTableStart(Node *parsetree);
 extern void EventTriggerAlterTableRelid(Oid objectId);
 extern void EventTriggerAlterTableStashSubcmd(Node *subcmd, Oid relid,
-								  AttrNumber attnum, Oid newoid);
+								  ObjectAddress address);
 extern void EventTriggerAlterTableEnd(void);
 
 extern void EventTriggerStashGrant(InternalGrant *istmt);
@@ -77,6 +78,8 @@ extern void EventTriggerStashAlterOpFam(AlterOpFamilyStmt *stmt, Oid opfamoid,
 							List *operators, List *procedures);
 extern void EventTriggerStashCreateOpClass(CreateOpClassStmt *stmt, Oid opcoid,
 							   List *operators, List *procedures);
+extern void EventTriggerStashAlterTSConfig(AlterTSConfigurationStmt *stmt,
+							   Oid cfgId, Oid *dicts, int ndicts);
 extern void EventTriggerStashAlterDefPrivs(AlterDefaultPrivilegesStmt *stmt);
 
 #endif   /* EVENT_TRIGGER_H */
