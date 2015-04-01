@@ -3645,8 +3645,7 @@ ATExecCmd(List **wqueue, AlteredTableInfo *tab, Relation rel,
 			ATExecDropOf(rel, lockmode);
 			break;
 		case AT_ReplicaIdentity:
-			ATExecReplicaIdentity(rel, (ReplicaIdentityStmt *) cmd->def,
-								  lockmode);
+			ATExecReplicaIdentity(rel, (ReplicaIdentityStmt *) cmd->def, lockmode);
 			break;
 		case AT_EnableRowSecurity:
 			ATExecEnableRowSecurity(rel);
@@ -3662,9 +3661,6 @@ ATExecCmd(List **wqueue, AlteredTableInfo *tab, Relation rel,
 				 (int) cmd->subtype);
 			break;
 	}
-
-	EventTriggerAlterTableStashSubcmd((Node *) cmd, RelationGetRelid(rel),
-									  colno, newoid);
 
 	/*
 	 * Report the subcommand to interested event triggers.
@@ -6661,8 +6657,6 @@ ATExecAlterConstraint(Relation rel, AlterTableCmd *cmd,
 		simple_heap_update(conrel, &copyTuple->t_self, copyTuple);
 		CatalogUpdateIndexes(conrel, copyTuple);
 
-		constrOid = HeapTupleGetOid(contuple);
-
 		InvokeObjectPostAlterHook(ConstraintRelationId,
 								  HeapTupleGetOid(contuple), 0);
 
@@ -6781,8 +6775,6 @@ ATExecValidateConstraint(Relation rel, char *constrName, bool recurse,
 	{
 		HeapTuple	copyTuple;
 		Form_pg_constraint copy_con;
-
-		constrOid = HeapTupleGetOid(tuple);
 
 		if (con->contype == CONSTRAINT_FOREIGN)
 		{
