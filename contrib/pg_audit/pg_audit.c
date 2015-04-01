@@ -53,13 +53,13 @@ PG_FUNCTION_INFO_V1(pg_audit_ddl_command_end);
 PG_FUNCTION_INFO_V1(pg_audit_sql_drop);
 
 /*
- * auditRole is the string value of the pgaudit.role GUC, which contains the
+ * auditRole is the string value of the pg_audit.role GUC, which contains the
  * role for grant-based auditing.
  */
 char *auditRole = NULL;
 
 /*
- * auditLog is the string value of the pgaudit.log GUC, e.g. "read, write, ddl"
+ * auditLog is the string value of the pg_audit.log GUC, e.g. "read, write, ddl"
  * (it's not used by the module but is required by DefineCustomStringVariable).
  * Each token corresponds to a flag in enum LogClass below. We convert the list
  * of tokens into a bitmap in auditLogBitmap for internal use.
@@ -76,7 +76,7 @@ static uint64 auditLogBitmap = 0;
 
 /*
  * String constants for log classes - used when processing tokens in the
- * pgaudit.log GUC.
+ * pg_audit.log GUC.
  */
 #define CLASS_DDL			"DDL"
 #define CLASS_FUNCTION		"FUNCTION"
@@ -310,87 +310,6 @@ stack_pop(int64 stackId)
 }
 
 /*
- * Takes an AuditEvent and returns true or false depending on whether the event
- * should be logged according to the pgaudit.roles/log settings. If it returns
- * true, also fills in the name of the LogClass which it is logged under.
- */
-static bool
-log_check(AuditEvent *e, const char **classname)
-{
-	enum LogClass class = LOG_NONE;
-
-	/* By default put everything in the MISC class. */
-	*classname = CLASS_MISC;
-	class = LOG_MISC;
-
-	/*
-	 * Look at the type of the command and decide what LogClass needs to be
-	 * enabled for the command to be logged.
-	 */
-	switch (e->logStmtLevel)
-	{
-		case LOGSTMT_MOD:
-			*classname = CLASS_WRITE;
-			class = LOG_WRITE;
-			break;
-
-		case LOGSTMT_DDL:
-			*classname = CLASS_DDL;
-			class = LOG_DDL;
-
-		case LOGSTMT_ALL:
-			switch (e->commandTag)
-			{
-				case T_CopyStmt:
-				case T_SelectStmt:
-				case T_PrepareStmt:
-				case T_PlannedStmt:
-				case T_ExecuteStmt:
-					*classname = CLASS_READ;
-					class = LOG_READ;
-					break;
-
-				case T_VacuumStmt:
-				case T_ReindexStmt:
-					*classname = CLASS_DDL;
-					class = LOG_DDL;
-					break;
-
-				case T_DoStmt:
-					*classname = CLASS_FUNCTION;
-					class = LOG_FUNCTION;
-					break;
-
-				default:
-					break;
-			}
-			break;
-
-		case LOGSTMT_NONE:
-			break;
-	}
-
-	/*
-	 * We log audit events under the following conditions:
-	 *
-	 * 1. If the audit role has been explicitly granted permission for
-	 *    an operation.
-	 */
-	if (e->granted)
-	{
-		return true;
-	}
-
-	/* 2. If the event belongs to a class covered by pgaudit.log. */
-	if ((auditLogBitmap & class) == class)
-	{
-		return true;
-	}
-
-	return false;
-}
-
-/*
  * Appends a properly quoted CSV field to StringInfo.
  */
 static void
@@ -429,19 +348,70 @@ append_valid_csv(StringInfoData *buffer, const char *appendStr)
 }
 
 /*
- * Takes an AuditEvent and, if it log_check(), writes it to the audit log. The
- * AuditEvent is assumed to be completely filled in by the caller (unknown
- * values must be set to "" so that they can be logged without error checking).
+ * Takes an AuditEvent, classifies it, then logs it if permissions were granted
+ * via roles or if the statement belongs in a class that is being logged.
  */
 static void
 log_audit_event(AuditEventStackItem *stackItem)
 {
-	const char *classname;
 	MemoryContext contextOld;
 	StringInfoData auditStr;
 
-	/* Check that this event should be logged. */
-	if (!log_check(&stackItem->auditEvent, &classname))
+	/* By default put everything in the MISC class. */
+	enum LogClass class = LOG_MISC;
+	const char *className = CLASS_MISC;
+
+	/* Classify the statement using log stmt level and the command tag */
+	switch (stackItem->auditEvent.logStmtLevel)
+	{
+		case LOGSTMT_MOD:
+			className = CLASS_WRITE;
+			class = LOG_WRITE;
+			break;
+
+		case LOGSTMT_DDL:
+			className = CLASS_DDL;
+			class = LOG_DDL;
+
+		case LOGSTMT_ALL:
+			switch (stackItem->auditEvent.commandTag)
+			{
+				case T_CopyStmt:
+				case T_SelectStmt:
+				case T_PrepareStmt:
+				case T_PlannedStmt:
+				case T_ExecuteStmt:
+					className = CLASS_READ;
+					class = LOG_READ;
+					break;
+
+				case T_VacuumStmt:
+				case T_ReindexStmt:
+					className = CLASS_DDL;
+					class = LOG_DDL;
+					break;
+
+				case T_DoStmt:
+					className = CLASS_FUNCTION;
+					class = LOG_FUNCTION;
+					break;
+
+				default:
+					break;
+			}
+			break;
+
+		case LOGSTMT_NONE:
+			break;
+	}
+
+	/*
+	 * Only log the statement if:
+	 *
+	 * 1. If permissions were granted via roles
+	 * 2. The statement belongs to a class that is being logged
+	 */
+	if (!stackItem->auditEvent.granted && !(auditLogBitmap & class))
 		return;
 
 	/* Use audit memory context in case something is not freed */
@@ -517,7 +487,7 @@ log_audit_event(AuditEventStackItem *stackItem)
 				AUDIT_TYPE_OBJECT : AUDIT_TYPE_SESSION,
 			stackItem->auditEvent.statementId,
 			stackItem->auditEvent.substatementId,
-			classname, auditStr.data),
+			className, auditStr.data),
 		 errhidestmt(true)));
 
 	/* Mark the audit event as logged */
@@ -533,7 +503,9 @@ log_audit_event(AuditEventStackItem *stackItem)
  * considered.
  */
 static bool
-log_acl_check(Datum aclDatum, Oid auditOid, AclMode mask)
+audit_on_acl(Datum aclDatum,
+			 Oid auditOid,
+			 AclMode mask)
 {
 	bool		result = false;
 	Acl		   *acl;
@@ -603,9 +575,9 @@ log_acl_check(Datum aclDatum, Oid auditOid, AclMode mask)
  * Check if a role has any of the permissions in the mask on a relation.
  */
 static bool
-log_relation_check(Oid relOid,
-				   Oid auditOid,
-				   AclMode mask)
+audit_on_relation(Oid relOid,
+				  Oid auditOid,
+				  AclMode mask)
 {
 	bool		result = false;
 	HeapTuple	tuple;
@@ -625,7 +597,7 @@ log_relation_check(Oid relOid,
 
 	/* If not null then test */
 	if (!isNull)
-		result = log_acl_check(aclDatum, auditOid, mask);
+		result = audit_on_acl(aclDatum, auditOid, mask);
 
 	/* Free the relation tuple */
 	ReleaseSysCache(tuple);
@@ -637,10 +609,10 @@ log_relation_check(Oid relOid,
  * Check if a role has any of the permissions in the mask on an attribute.
  */
 static bool
-log_attribute_check(Oid relOid,
-					AttrNumber attNum,
-					Oid auditOid,
-					AclMode mask)
+audit_on_attribute(Oid relOid,
+				   AttrNumber attNum,
+				   Oid auditOid,
+				   AclMode mask)
 {
 	bool		result = false;
 	HeapTuple	attTuple;
@@ -663,7 +635,7 @@ log_attribute_check(Oid relOid,
 								   &isNull);
 
 		if (!isNull)
-			result = log_acl_check(aclDatum, auditOid, mask);
+			result = audit_on_acl(aclDatum, auditOid, mask);
 	}
 
 	/* Free attribute */
@@ -678,10 +650,10 @@ log_attribute_check(Oid relOid,
  * relation will be tested.
  */
 static bool
-log_attribute_check_any(Oid relOid,
-						Oid auditOid,
-						Bitmapset *attributeSet,
-						AclMode mode)
+audit_on_any_attribute(Oid relOid,
+					   Oid auditOid,
+					   Bitmapset *attributeSet,
+					   AclMode mode)
 {
 	bool result = false;
 	AttrNumber col;
@@ -706,7 +678,7 @@ log_attribute_check_any(Oid relOid,
 		/* Check each column */
 		for (curr_att = 1; curr_att <= nattrs; curr_att++)
 		{
-			if (log_attribute_check(relOid, curr_att, auditOid, mode))
+			if (audit_on_attribute(relOid, curr_att, auditOid, mode))
 				return true;
 		}
 	}
@@ -720,7 +692,7 @@ log_attribute_check_any(Oid relOid,
 		col += FirstLowInvalidHeapAttributeNumber;
 
 		if (col != InvalidAttrNumber &&
-			log_attribute_check(relOid, col, auditOid, mode))
+			audit_on_attribute(relOid, col, auditOid, mode))
 		{
 			result = true;
 			break;
@@ -890,7 +862,7 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 			 * If any of the required permissions for the relation are granted
 			 * to the audit role then audit the relation
 			 */
-			if (log_relation_check(relOid, auditOid, auditPerms))
+			if (audit_on_relation(relOid, auditOid, auditPerms))
 			{
 				auditEventStack->auditEvent.granted = true;
 			}
@@ -908,9 +880,9 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 				if (auditPerms & ACL_SELECT)
 				{
 					auditEventStack->auditEvent.granted =
-						log_attribute_check_any(relOid, auditOid,
-												rte->selectedCols,
-												ACL_SELECT);
+						audit_on_any_attribute(relOid, auditOid,
+											   rte->selectedCols,
+											   ACL_SELECT);
 				}
 
 				/*
@@ -924,9 +896,9 @@ log_select_dml(Oid auditOid, List *rangeTabls)
 					if (auditPerms)
 					{
 						auditEventStack->auditEvent.granted =
-							log_attribute_check_any(relOid, auditOid,
-													rte->modifiedCols,
-													auditPerms);
+							audit_on_any_attribute(relOid, auditOid,
+												   rte->modifiedCols,
+												   auditPerms);
 					}
 				}
 			}
@@ -1165,7 +1137,7 @@ static ExecutorEnd_hook_type next_ExecutorEnd_hook = NULL;
  * ExecutorCheckPerms.
  */
 static void
-pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
+pg_audit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
 {
 	AuditEventStackItem *stackItem = NULL;
 
@@ -1226,7 +1198,7 @@ pgaudit_ExecutorStart_hook(QueryDesc *queryDesc, int eflags)
  * Hook ExecutorCheckPerms to do session and object auditing for DML.
  */
 static bool
-pgaudit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
+pg_audit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
 {
 	Oid auditOid;
 
@@ -1250,7 +1222,7 @@ pgaudit_ExecutorCheckPerms_hook(List *rangeTabls, bool abort)
  * Hook ExecutorEnd to pop statement audit event off the stack.
  */
 static void
-pgaudit_ExecutorEnd_hook(QueryDesc *queryDesc)
+pg_audit_ExecutorEnd_hook(QueryDesc *queryDesc)
 {
 	/* Call the next hook or standard function */
 	if (next_ExecutorEnd_hook)
@@ -1269,12 +1241,12 @@ pgaudit_ExecutorEnd_hook(QueryDesc *queryDesc)
  * Hook ProcessUtility to do session auditing for DDL and utility commands.
  */
 static void
-pgaudit_ProcessUtility_hook(Node *parsetree,
-							const char *queryString,
-							ProcessUtilityContext context,
-							ParamListInfo params,
-							DestReceiver *dest,
-							char *completionTag)
+pg_audit_ProcessUtility_hook(Node *parsetree,
+							 const char *queryString,
+							 ProcessUtilityContext context,
+							 ParamListInfo params,
+							 DestReceiver *dest,
+							 char *completionTag)
 {
 	AuditEventStackItem *stackItem = NULL;
 	int64 stackId;
@@ -1342,11 +1314,11 @@ pgaudit_ProcessUtility_hook(Node *parsetree,
  * by log_utility_command().
  */
 static void
-pgaudit_object_access_hook(ObjectAccessType access,
-						   Oid classId,
-						   Oid objectId,
-						   int subId,
-						   void *arg)
+pg_audit_object_access_hook(ObjectAccessType access,
+							Oid classId,
+							Oid objectId,
+							int subId,
+							void *arg)
 {
 	if (auditLogBitmap != 0 && !IsAbortedTransactionBlockState() &&
 		auditLogBitmap & (LOG_DDL | LOG_FUNCTION))
@@ -1387,7 +1359,7 @@ pg_audit_ddl_command_end(PG_FUNCTION_ARGS)
 		/* Switch memory context */
 		contextQuery = AllocSetContextCreate(
 						CurrentMemoryContext,
-						"pgaudit_func_ddl_command_end temporary context",
+						"pg_audit_func_ddl_command_end temporary context",
 						ALLOCSET_DEFAULT_MINSIZE,
 						ALLOCSET_DEFAULT_INITSIZE,
 						ALLOCSET_DEFAULT_MAXSIZE);
@@ -1484,7 +1456,7 @@ pg_audit_sql_drop(PG_FUNCTION_ARGS)
 		/* Switch memory context */
 		contextQuery = AllocSetContextCreate(
 						CurrentMemoryContext,
-						"pgaudit_func_ddl_command_end temporary context",
+						"pg_audit_func_ddl_command_end temporary context",
 						ALLOCSET_DEFAULT_MINSIZE,
 						ALLOCSET_DEFAULT_INITSIZE,
 						ALLOCSET_DEFAULT_MAXSIZE);
@@ -1558,7 +1530,7 @@ pg_audit_sql_drop(PG_FUNCTION_ARGS)
  * a bitmap that log_audit_event can check.
  */
 static bool
-check_pgaudit_log(char **newval, void **extra, GucSource source)
+check_pg_audit_log(char **newval, void **extra, GucSource source)
 {
 	List *flags;
 	char *rawval;
@@ -1635,7 +1607,7 @@ check_pgaudit_log(char **newval, void **extra, GucSource source)
 	list_free(flags);
 
 	/*
-	 * Store the bitmap for assign_pgaudit_log.
+	 * Store the bitmap for assign_pg_audit_log.
 	 */
 	*extra = f;
 
@@ -1643,12 +1615,12 @@ check_pgaudit_log(char **newval, void **extra, GucSource source)
 }
 
 /*
- * Set pgaudit_log from extra (ignoring newval, which has already been converted
- * to a bitmap above). Note that extra may not be set if the assignment is to be
- * suppressed.
+ * Set pg_audit_log from extra (ignoring newval, which has already been
+ * converted to a bitmap above). Note that extra may not be set if the
+ * assignment is to be suppressed.
  */
 static void
-assign_pgaudit_log(const char *newval, void *extra)
+assign_pg_audit_log(const char *newval, void *extra)
 {
 	if (extra)
 		auditLogBitmap = *(uint64 *)extra;
@@ -1691,8 +1663,8 @@ _PG_init(void)
 							   "none",
 							   PGC_SUSET,
 							   GUC_LIST_INPUT | GUC_NOT_IN_SAMPLE,
-							   check_pgaudit_log,
-							   assign_pgaudit_log,
+							   check_pg_audit_log,
+							   assign_pg_audit_log,
 							   NULL);
 
 	/*
@@ -1700,17 +1672,17 @@ _PG_init(void)
 	 * the chain.
 	 */
 	next_ExecutorStart_hook = ExecutorStart_hook;
-	ExecutorStart_hook = pgaudit_ExecutorStart_hook;
+	ExecutorStart_hook = pg_audit_ExecutorStart_hook;
 
 	next_ExecutorCheckPerms_hook = ExecutorCheckPerms_hook;
-	ExecutorCheckPerms_hook = pgaudit_ExecutorCheckPerms_hook;
+	ExecutorCheckPerms_hook = pg_audit_ExecutorCheckPerms_hook;
 
 	next_ExecutorEnd_hook = ExecutorEnd_hook;
-	ExecutorEnd_hook = pgaudit_ExecutorEnd_hook;
+	ExecutorEnd_hook = pg_audit_ExecutorEnd_hook;
 
 	next_ProcessUtility_hook = ProcessUtility_hook;
-	ProcessUtility_hook = pgaudit_ProcessUtility_hook;
+	ProcessUtility_hook = pg_audit_ProcessUtility_hook;
 
 	next_object_access_hook = object_access_hook;
-	object_access_hook = pgaudit_object_access_hook;
+	object_access_hook = pg_audit_object_access_hook;
 }
