@@ -100,6 +100,7 @@ if [ $1 == $INTERMEDIATE ] || [ $1 == $SERVER_IM ]
     else cat $SERVER.crt > "$DB_PATH/$SERVER.crt";
 fi
 
+echo -e "local all postgres peer\nhostssl all $USER 127.0.0.1/32 cert" > "$DB_PATH/pg_hba.conf"
 #local   all             postgres                                peer
 #sslhost all             dsteele                                 cert
 
@@ -107,7 +108,7 @@ chown postgres:postgres "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SER
 chmod 400 "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 
 # Start postgres
-sudo su - postgres -c "$DB_BIN/pg_ctl start -D $DB_PATH -w -s -o '-c ssl_ca_file=ca.crt -c ssl_cert_file=server.crt -c ssl_key_file=server.key'"
+sudo su - postgres -c "$DB_BIN/pg_ctl start -D $DB_PATH -w -s -o '-c ssl=on -c ssl_ca_file=ca.crt -c ssl_cert_file=server.crt -c ssl_key_file=server.key'"
 sudo su - postgres -c "echo 'create user dsteele' | $DB_BIN/psql postgres"
 
 # Remove old files from user
@@ -130,4 +131,5 @@ chmod 400 "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTG
 sudo su - $USER -c "echo 'select count(*) from pg_database' | psql -h $SERVER_HOST postgres"
 
 #drop the cluster
-#sudo su - postgres -c 'pg_dropcluster --stop $DB_VERSION $DB_CLUSTER'
+sudo su - postgres -c "$DB_BIN/pg_ctl stop -D $DB_PATH -m fast -w -s"
+rm -rf $DB_PATH
