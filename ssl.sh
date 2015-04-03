@@ -3,9 +3,9 @@
 USER="dsteele"
 DB_VERSION="9.4"
 DB_CLUSTER="ssltest"
-DB_BASE="/var/lib/postgresql"
 DB_BIN="/usr/lib/postgresql/$DB_VERSION/bin"
-DB_PATH="$DB_BASE/$DB_VERSION/$DB_CLUSTER"
+BASE_PATH=$PWD
+DB_PATH="$BASE_PATH/test"
 USER_PATH="/home/$USER/.postgresql"
 
 SERVER_HOST="server.crunchydata.com"
@@ -58,7 +58,6 @@ if [ $1 == $INTERMEDIATE ] || [ $1 == $SERVER_IM ]
     then cert $SERVER $SERVER_CNAME $SERVER_IM "02";
     else cert $SERVER $SERVER_CNAME $CA "03";
 fi
-#cert $SERVER $SERVER_CNAME $CA
 
 # Generate intermediate client cert
 if [ $1 == $INTERMEDIATE ] || [ $1 == $CLIENT_IM ]
@@ -71,26 +70,16 @@ if [ $1 == $INTERMEDIATE ] || [ $1 == $CLIENT_IM ]
     else cert $CLIENT $CLIENT_CNAME $CA "06";
 fi
 
-# Stop Postgres
-sudo su - postgres -c "$DB_BIN/pg_ctl stop -D $DB_PATH -m immediate -w"
-
+# Stop the test cluster if running
+$DB_BIN/pg_ctl stop -D $DB_PATH -m immediate -w
 rm -rf $DB_PATH
-mkdir -p $DB_PATH
-chown postgres:postgres $DB_PATH
 
-sudo su - postgres -c "$DB_BIN/initdb -D $DB_PATH -A trust"
-
-#sudo su - postgres -c 'pg_dropcluster --stop $DB_VERSION $DB_CLUSTER'
-#sudo su - postgres -c 'pg_createcluster $DB_VERSION $DB_CLUSTER'
-
-# Remove old file from Postgres
-#rm "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
+# Create a new test cluster
+mkdir $DB_PATH
+$DB_BIN/initdb -D $DB_PATH -A trust
+echo -e "hostssl all $USER 127.0.0.1/32 cert" > $DB_PATH/pg_hba.conf
 
 # Move files to Postgres
-# if [[ "$1" == "$INTERMEDIATE" ]]
-#     then cat $CLIENT_IM.crt $CA.crt > "$DB_PATH/$CA.crt";
-#     else cp $CA.crt "$DB_PATH/$CA.crt";
-# fi
 cp $CA.crt "$DB_PATH/$CA.crt"
 
 cp $SERVER.key "$DB_PATH/$SERVER.key"
@@ -100,16 +89,7 @@ if [ $1 == $INTERMEDIATE ] || [ $1 == $SERVER_IM ]
     else cat $SERVER.crt > "$DB_PATH/$SERVER.crt";
 fi
 
-echo -e "local all postgres peer\nhostssl all $USER 127.0.0.1/32 cert" > "$DB_PATH/pg_hba.conf"
-#local   all             postgres                                peer
-#sslhost all             dsteele                                 cert
-
-chown postgres:postgres "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
-chmod 400 "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
-
-# Start postgres
-sudo su - postgres -c "$DB_BIN/pg_ctl start -D $DB_PATH -w -s -o '-c ssl=on -c ssl_ca_file=ca.crt -c ssl_cert_file=server.crt -c ssl_key_file=server.key'"
-sudo su - postgres -c "echo 'create user dsteele' | $DB_BIN/psql postgres"
+chmod 600 "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 
 # Remove old files from user
 rm "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
@@ -124,12 +104,14 @@ if [ $1 == $INTERMEDIATE ] || [ $1 == $CLIENT_IM ]
     else cp $CLIENT.crt "$USER_PATH/$POSTGRESQL.crt";
 fi
 
-chown $USER:root "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
-chmod 400 "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
+chmod 600 "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
+
+# Start postgres
+$DB_BIN/pg_ctl start -D $DB_PATH -l $DB_PATH/postgresql.log -w -s -o " -c unix_socket_directories=$DB_PATH -c ssl=on -c ssl_ca_file=ca.crt -c ssl_cert_file=server.crt -c ssl_key_file=server.key"
 
 # Now try to connect
-sudo su - $USER -c "echo 'select count(*) from pg_database' | psql -h $SERVER_HOST postgres"
+echo "select count(*) from pg_database" | psql -h $SERVER_HOST postgres
 
 #drop the cluster
-sudo su - postgres -c "$DB_BIN/pg_ctl stop -D $DB_PATH -m fast -w -s"
-rm -rf $DB_PATH
+$DB_BIN/pg_ctl stop -D $DB_PATH -m fast -w -s
+#rm -rf $DB_PATH
