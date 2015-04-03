@@ -1,7 +1,11 @@
 #/bin/bash
 
 USER="dsteele"
-DB_PATH="/var/lib/postgresql/9.4/main"
+DB_VERSION="9.4"
+DB_CLUSTER="ssltest"
+DB_BASE="/var/lib/postgresql"
+DB_BIN="/usr/lib/postgresql/$DB_VERSION/bin"
+DB_PATH="$DB_BASE/$DB_VERSION/$DB_CLUSTER"
 USER_PATH="/home/$USER/.postgresql"
 
 SERVER_HOST="server.crunchydata.com"
@@ -68,10 +72,19 @@ if [ $1 == $INTERMEDIATE ] || [ $1 == $CLIENT_IM ]
 fi
 
 # Stop Postgres
-pg_ctlcluster 9.4 main stop -m fast
+sudo su - postgres -c "$DB_BIN/pg_ctl stop -D $DB_PATH -m immediate -w"
+
+rm -rf $DB_PATH
+mkdir -p $DB_PATH
+chown postgres:postgres $DB_PATH
+
+sudo su - postgres -c "$DB_BIN/initdb -D $DB_PATH -A trust"
+
+#sudo su - postgres -c 'pg_dropcluster --stop $DB_VERSION $DB_CLUSTER'
+#sudo su - postgres -c 'pg_createcluster $DB_VERSION $DB_CLUSTER'
 
 # Remove old file from Postgres
-rm "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
+#rm "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 
 # Move files to Postgres
 # if [[ "$1" == "$INTERMEDIATE" ]]
@@ -87,11 +100,15 @@ if [ $1 == $INTERMEDIATE ] || [ $1 == $SERVER_IM ]
     else cat $SERVER.crt > "$DB_PATH/$SERVER.crt";
 fi
 
+#local   all             postgres                                peer
+#sslhost all             dsteele                                 cert
+
 chown postgres:postgres "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 chmod 400 "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 
 # Start postgres
-pg_ctlcluster 9.4 main start
+sudo su - postgres -c "$DB_BIN/pg_ctl start -D $DB_PATH -w -s -o '-c ssl_ca_file=ca.crt -c ssl_cert_file=server.crt -c ssl_key_file=server.key'"
+sudo su - postgres -c "echo 'create user dsteele' | $DB_BIN/psql postgres"
 
 # Remove old files from user
 rm "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
@@ -110,4 +127,7 @@ chown $USER:root "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH
 chmod 400 "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
 
 # Now try to connect
-sudo su - $USER -c 'echo "select count(*) from pg_database" | psql -h localhost postgres'
+sudo su - $USER -c "echo 'select count(*) from pg_database' | psql -h $SERVER_HOST postgres"
+
+#drop the cluster
+#sudo su - postgres -c 'pg_dropcluster --stop $DB_VERSION $DB_CLUSTER'
