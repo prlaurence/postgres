@@ -3,6 +3,7 @@
 USER="dsteele"
 DB_PATH="/var/lib/postgresql/9.4/main"
 USER_PATH="/home/$USER/.postgresql"
+
 SUBJ="/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN="
 SERVER_CNAME="server.crunchydata.com"
 ROOT_CNAME="root-ca"
@@ -12,8 +13,25 @@ CA="ca"
 ROOT="root"
 POSTGRESQL="postgresql"
 SERVER="server"
+SERVER_IM="server-intermediate"
 CLIENT="client"
+CLIENT_IM="client-intermediate"
 
+function cert
+{
+    openssl req -nodes -new -x509 -keyout $1.key -out $1.crt \
+       -subj "$SUBJ$2"
+
+    openssl req -new -sha256 -days 1825 -key $1.key -out $1.csr \
+      -subj "$SUBJ$2"
+
+    openssl x509 -req -days 1825 -CA $3.crt -CAkey $3.key -set_serial 01 \
+            -in $1.csr -out $1.crt
+    
+    rm $1.csr
+}  
+
+# Remove current certs and keys
 rm *
 
 # generate passphrase file
@@ -24,28 +42,10 @@ openssl req -nodes -new -x509 -keyout $CA.key -out $CA.crt \
    -subj "$SUBJ$ROOT_CNAME"
 
 # Generate server cert
-openssl req -nodes -new -x509 -keyout $SERVER.key -out $SERVER.crt \
-   -subj "$SUBJ$SERVER_CNAME"
-
-openssl req -new -sha256 -days 1825 -key $SERVER.key -out $SERVER.csr \
-  -subj "$SUBJ$SERVER_CNAME"
-
-openssl x509 -req -days 1825 -CA $CA.crt -CAkey $CA.key -set_serial 01 \
-        -in $SERVER.csr -out $SERVER.crt
-
-rm server.csr
+cert $SERVER $SERVER_CNAME $CA
 
 # Generate client cert
-openssl req -nodes -new -x509 -keyout $CLIENT.key -out $CLIENT.crt \
-   -subj "$SUBJ$CLIENT_CNAME"
-
-openssl req -new -sha256 -days 1825 -key $CLIENT.key -out $CLIENT.csr \
-   -subj "$SUBJ$CLIENT_CNAME"
-
-openssl x509 -req -days 1825 -CA $CA.crt -CAkey $CA.key -set_serial 01 \
-        -in $CLIENT.csr -out $CLIENT.crt
-
-rm client.csr
+cert $CLIENT $CLIENT_CNAME $CA
 
 # Stop Postgres
 pg_ctlcluster 9.4 main stop -m fast
