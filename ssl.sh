@@ -7,6 +7,7 @@ USER_PATH="/home/$USER/.postgresql"
 SUBJ="/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN="
 SERVER_CNAME="server.crunchydata.com"
 ROOT_CNAME="root-ca"
+IM_CNAME="im-ca"
 CLIENT_CNAME=$USER
 
 CA="ca"
@@ -41,23 +42,31 @@ echo "test" > passphrase.txt
 openssl req -nodes -new -x509 -keyout $CA.key -out $CA.crt \
    -subj "$SUBJ$ROOT_CNAME"
 
+# Generate intermediate server cert
+cert $SERVER_IM "$SERVER-$IM_CNAME" $CA
+
 # Generate server cert
+#cert $SERVER $SERVER_CNAME $SERVER_IM
 cert $SERVER $SERVER_CNAME $CA
 
+# Generate intermediate client cert
+cert $CLIENT_IM "$CLIENT-$IM_CNAME" $CA
+
 # Generate client cert
+#cert $CLIENT $CLIENT_CNAME $CLIENT_IM
 cert $CLIENT $CLIENT_CNAME $CA
 
 # Stop Postgres
 pg_ctlcluster 9.4 main stop -m fast
 
-rm "$DB_PATH/$CA.crt"
-rm "$DB_PATH/$SERVER.key"
-rm "$DB_PATH/$SERVER.crt"
+# Remove old file from Postgres
+rm "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 
 # Move files to Postgres
-cp ca.crt "$DB_PATH/$CA.crt"
-cp server.key "$DB_PATH/$SERVER.key"
-cp server.crt "$DB_PATH/$SERVER.crt"
+cp $CA.crt "$DB_PATH/$CA.crt"
+cp $SERVER.key "$DB_PATH/$SERVER.key"
+#cat $SERVER.crt $SERVER_IM.crt > "$DB_PATH/$SERVER.crt"
+cat $SERVER.crt > "$DB_PATH/$SERVER.crt"
 chown postgres:postgres "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 chmod 400 "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 
@@ -65,12 +74,13 @@ chmod 400 "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 pg_ctlcluster 9.4 main start
 
 # Remove old files from user
-rm /home/dsteele/.postgresql/*
+rm "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
 
 # Move files to user
-cp ca.crt "$USER_PATH/$ROOT.crt"
-cp client.key "$USER_PATH/$POSTGRESQL.key"
-cp client.crt "$USER_PATH/$POSTGRESQL.crt"
+cp $CA.crt "$USER_PATH/$ROOT.crt"
+cp $CLIENT.key "$USER_PATH/$POSTGRESQL.key"
+#cat $CLIENT.crt $CLIENT_IM.crt > "$USER_PATH/$POSTGRESQL.crt"
+cat $CLIENT.crt > "$USER_PATH/$POSTGRESQL.crt"
 
-chown $USER:root "$USER_PATH/root.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
-chmod 400 "$USER_PATH/root.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
+chown $USER:root "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
+chmod 400 "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
