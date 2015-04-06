@@ -2,9 +2,15 @@
 
 These instructions will guide you through the process of configuring PostgreSQL to use SSL for secure connections.  We'll be placing an intermediate CA in the chain of trust.  While this is not strictly necessary, it is a good idea as it allows you to keep your root CA certificate safe (i.e. offline).  In the case of a security breach only the intermediate certificate needs to be revoked.
 
-??? We'll create a self-signed root CA for the purpose of demonstration, but feel free to substitute your own root CA 
+We'll show how to create a self-signed root CA for the purposes of demonstration, but feel free to substitute your own root CA .
 
 ## Creating certificates
+
+### Configuring openssl.cnf
+
+These instructions expect that your openssl configuration file is located at /etc/ssl/openssl.cnf.  From a default configuration you'll need to make sure that the following line in the [ v3_ca ] section has been uncommented:
+
+keyUsage = cRLSign, keyCertSign
 
 ### Create a self-signed CA (optional)
 
@@ -19,7 +25,7 @@ You'll be required to enter a passphrase.  This should be long and guarded well.
 * Create a self-signed certificate:
 ```
 openssl req -new -x509 -sha256 -days 1825 -key ca.key -out ca.crt \
-  -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=root.crunchydata.com"
+  -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=root-ca"
 ```
 
 ### Create the intermediate CAs
@@ -30,17 +36,18 @@ Now that the root CA is worked out, you'll create the intermediate CAs that will
 ```
 openssl genrsa -aes256 -out server-intermediate.key 4096
 ```
-You'll be required to enter a passphrase.  Don't reuse the passphrase from your root key.
+You'll be required to enter a passphrase.  Tt's best not to reuse the passphrase from your root key.
 
 * Create the server intermediate certificate signing request (CSR):
 ```
 openssl req -new -sha256 -days 1825 -key server-intermediate.key -out server-intermediate.csr \
-  -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=server.crunchydata.com"
+  -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=server-im-ca"
 ```
 
 * Create the server intermediate certificate by signing with the CA certificate:
 ```
-openssl x509 -req -days 1825 -CA ca.crt -CAkey ca.key -set_serial 01 \
+openssl x509 -extfile /etc/ssl/openssl.cnf -extensions v3_ca -req -days 1825 \
+        -CA ca.crt -CAkey ca.key -CAcreateserial \
         -in server-intermediate.csr -out server-intermediate.crt
 ```
 
@@ -49,36 +56,35 @@ openssl x509 -req -days 1825 -CA ca.crt -CAkey ca.key -set_serial 01 \
 openssl genrsa -aes256 -out client-intermediate.key 4096
 
 openssl req -new -sha256 -days 1825 -key client-intermediate.key -out client-intermediate.csr \
-  -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=client.crunchydata.com"
+  -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=client-im-ca"
 
-openssl x509 -req -days 1825 -CA ca.crt -CAkey ca.key -set_serial 01 \
+openssl x509 -extfile /etc/ssl/openssl.cnf -extensions v3_ca -req -days 1825 \
+        -CA ca.crt -CAkey ca.key -CAcreateserial \
         -in client-intermediate.csr -out client-intermediate.crt
 ```
 
 ### Create server/client certificate
 
-Server and client certificates are created in exactly the same way as the intermediate CAs except that the intermediate CA is used to sign them instead of the root CA.  Additionally, the common name on server certificates must match the hostname of the server.
+Server and client certificates are signed by their respective intermediate CAs rather than the root CA.  Additionally, the common name on server certificates must match the hostname of the server and the common name of the client certificates must match the client's PostgreSQL user logon.  The private keys will created without passphrases to allow automatic startup of the PostgreSQL server and client.
 
 * Create a server certificate:
 ```
-openssl genrsa -aes256 -out server.key 4096
+openssl req -nodes -new -newkey rsa:4096 -sha256 -keyout server.key -out server.csr \
+        -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=server.crunchydata.com"
 
-openssl req -new -sha256 -days 1825 -key server.key -out server.csr \
-  -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=server.crunchydata.com"
-
-openssl x509 -req -days 1825 -CA server-intermediate.crt -CAkey server-intermediate.key -set_serial 01 \
-        -in server.csr -out server.crt
+openssl x509 -extfile /etc/ssl/openssl.cnf -extensions usr_cert -req -days 1825 \
+        -CA server-intermediate.crt -CAkey server-intermediate.key \
+        -CAcreateserial -in server.csr -out server.crt
 ```
 
 * Create a client certificate:
 ```
-openssl genrsa -aes256 -out client.key 4096
+openssl req -nodes -new -newkey rsa:4096 -sha256 -keyout client.key -out client.csr \
+        -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=pgusername"
 
-openssl req -new -sha256 -days 1825 -key client.key -out client.csr \
-  -subj "/C=US/ST=VA/L=Arlington/O=Crunchy Data Solutions/CN=dsteele"
-
-openssl x509 -req -days 1825 -CA client-intermediate.crt -CAkey client-intermediate.key -set_serial 01 \
-        -in client.csr -out client.crt
+openssl x509 -extfile /etc/ssl/openssl.cnf -extensions usr_cert -req -days 1825 \
+        -CA client-intermediate.crt -CAkey client-intermediate.key \
+        -CAcreateserial -in client.csr -out client.crt
 ```
 
 ## Configuring PostgreSQL
@@ -87,17 +93,17 @@ openssl x509 -req -days 1825 -CA client-intermediate.crt -CAkey client-intermedi
 
 The examples below will use `/var/lib/postgresql/9.4/main` as the `data_directory` setting in `postgresql.conf`.
 
-* You must remove the passphrase from the server key in order for PostgreSQL to start automatically:
-```
-openssl rsa -in server.key -out /var/lib/postgresql/9.4/main/server.key
-```
 * Copy the root CA
 ```
 cp ca.crt /var/lib/postgresql/9.4/main/ca.crt
 ```
-* Both the server-intermediate and server certificates need to be copied to server.crt
+* Copy the server key
 ```
-cat server.crt server-intermediate.crt > /var/lib/postgresql/9.4/main/server.crt
+cp server.key /var/lib/postgresql/9.4/main/server.key
+```
+* The server, server-intermediate, and root ca certificates need to be copied to PostgreSQL's `server.crt`:
+```
+cat server.crt server-intermediate.crt ca.crt > /var/lib/postgresql/9.4/main/server.crt
 ```
 * Set permissions
 ```
@@ -111,7 +117,7 @@ chmod 600 \
       /var/lib/postgresql/9.4/main/server.crt \
       /var/lib/postgresql/9.4/main/server.key
 ```
-* Now configure /etc/postgresql/9.4/main with the SSL settings:
+* Now configure `/etc/postgresql/9.4/main/postgresql.conf` with the SSL settings:
 
 ssl=true
 ssl_cert_file=server.crt
@@ -122,3 +128,17 @@ ssl_ca_file=ca.crt
 
 ### Client Configuration
 
+In the examples below assume you are logged on to the OS as the user you want to configure.
+
+* Copy the root CA
+```
+cp ca.crt ~/.postgresql/root.crt
+```
+* Copy the client key
+```
+cp client.key ~/.postgresql/postgresql.key
+```
+* The client, client-intermediate, and root ca certificates need to be copied to the client's `postgresql.crt`:
+```
+cat client.crt client-intermediate.crt ca.crt > ~/.postgresql/postgresql.crt
+```
