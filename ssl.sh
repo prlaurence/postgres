@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 
 USER="dsteele"
 DB_VERSION="9.4"
@@ -7,6 +7,7 @@ DB_BIN="/usr/lib/postgresql/$DB_VERSION/bin"
 BASE_PATH=$PWD
 DB_PATH="$BASE_PATH/test"
 USER_PATH="/home/$USER/.postgresql"
+#export OPENSSL_CONF="/home/$USER/ssl/openssl.cnf"
 
 SERVER_HOST="server.crunchydata.com"
 
@@ -29,22 +30,16 @@ CLIENT_IM="client-intermediate"
 
 function cert
 {
-    openssl req -nodes -new -x509 -keyout $1.key -out $1.crt \
+    openssl req -nodes -new -keyout $1.key -out $1.csr \
        -subj "$SUBJ$2"
 
-    openssl req -new -days 1825 -key $1.key -out $1.csr \
-      -subj "$SUBJ$2"
-
     if [ $4 == "ca" ]
-        then openssl ca -extensions v3_ca -notext -days 1825 -cert $3.crt -keyfile $3.key -in $1.csr -out $1.crt;
-        else openssl x509 -extensions usr_cert -req -days 1825 -CA $3.crt -CAkey $3.key -set_serial $4 -in $1.csr -out $1.crt
+        then openssl x509 -extfile $OPENSSL_CONF -extensions v3_ca -req -days 1825 -CA $3.crt -CAkey $3.key -CAcreateserial -in $1.csr -out $1.crt;
+        else openssl x509 -extfile $OPENSSL_CONF -extensions usr_cert -req -days 1825 -CA $3.crt -CAkey $3.key -set_serial $4 -in $1.csr -out $1.crt
     fi
-    
-    rm $1.csr
-}  
 
-# Remove current certs and keys
-rm *
+    rm $1.csr
+}
 
 # Generate self-signed root CA cert
 openssl req -extensions v3_ca -nodes -new -x509 -keyout $CA.key -out $CA.crt \
@@ -82,30 +77,23 @@ $DB_BIN/initdb -D $DB_PATH -A trust
 echo -e "hostssl all $USER 127.0.0.1/32 cert" > $DB_PATH/pg_hba.conf
 
 # Move files to Postgres
-if [ $1 == $INTERMEDIATE ] || [ $1 == $CLIENT_IM ]
-    then cat $CLIENT_IM.crt $SERVER_IM.crt $CA.crt > "$DB_PATH/$CA.crt";
-    else cp $CA.crt "$DB_PATH/$CA.crt";
-fi
-
+cp $CA.crt "$DB_PATH/$CA.crt";
 cp $SERVER.key "$DB_PATH/$SERVER.key"
 
 if [ $1 == $INTERMEDIATE ] || [ $1 == $SERVER_IM ]
-    then cat $SERVER.crt > "$DB_PATH/$SERVER.crt";
+    then cat $SERVER.crt $SERVER_IM.crt $CA.crt > "$DB_PATH/$SERVER.crt";
     else cat $SERVER.crt > "$DB_PATH/$SERVER.crt";
 fi
 
 chmod 600 "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 
-# Remove old files from user
-rm "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
-
 # Move files to user
-cat $CLIENT_IM.crt $SERVER_IM.crt $CA.crt > "$USER_PATH/$ROOT.crt";
+cp $CA.crt "$USER_PATH/$ROOT.crt";
 
 cp $CLIENT.key "$USER_PATH/$POSTGRESQL.key"
 
 if [ $1 == $INTERMEDIATE ] || [ $1 == $CLIENT_IM ]
-    then cat $CLIENT.crt $CLIENT_IM.crt > "$USER_PATH/$POSTGRESQL.crt";
+    then cat $CLIENT.crt $CLIENT_IM.crt $CA.crt > "$USER_PATH/$POSTGRESQL.crt";
     else cp $CLIENT.crt "$USER_PATH/$POSTGRESQL.crt";
 fi
 
@@ -115,8 +103,4 @@ chmod 600 "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTG
 $DB_BIN/pg_ctl start -D $DB_PATH -l $DB_PATH/postgresql.log -w -s -o " -c unix_socket_directories=$DB_PATH -c ssl=on -c ssl_ca_file=ca.crt -c ssl_cert_file=server.crt -c ssl_key_file=server.key"
 
 # Now try to connect
-echo "select count(*) from pg_database" | psql "postgresql://$SERVER_HOST/postgres?sslmode=require"
-
-#drop the cluster
-$DB_BIN/pg_ctl stop -D $DB_PATH -m fast -w -s
-#rm -rf $DB_PATH
+echo "select count(*) from pg_database" | psql -p 5432 "postgresql://$SERVER_HOST/postgres?sslmode=verify-full"
