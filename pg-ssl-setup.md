@@ -9,9 +9,9 @@ We'll show how to create a self-signed root CA for the purposes of demonstration
 ### Configuring openssl.cnf
 
 These instructions expect that your openssl configuration file is located at /etc/ssl/openssl.cnf.  From a default configuration you'll need to make sure that the following line in the [ v3_ca ] section has been uncommented:
-
+```
 keyUsage = cRLSign, keyCertSign
-
+```
 ### Create a self-signed CA (optional)
 
 You will likely have a certificate signed by a trusted CA, but for some installations or to just try out these instructions you may want to create a self-signed certificate.
@@ -32,11 +32,11 @@ openssl req -new -x509 -sha256 -days 1825 -key ca.key -out ca.crt \
 
 Now that the root CA is worked out, you'll create the intermediate CAs that will be used to sign server and client certificates.
 
-* Create the server intermediate private key;
+* Create the server intermediate private key:
 ```
 openssl genrsa -aes256 -out server-intermediate.key 4096
 ```
-You'll be required to enter a passphrase.  Tt's best not to reuse the passphrase from your root key.
+You'll be required to enter a passphrase.  It's best not to reuse the passphrase from your root key.
 
 * Create the server intermediate certificate signing request (CSR):
 ```
