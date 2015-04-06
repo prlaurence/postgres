@@ -37,7 +37,7 @@ function cert
 
     if [ $4 == "ca" ]
         then openssl ca -extensions v3_ca -notext -days 1825 -cert $3.crt -keyfile $3.key -in $1.csr -out $1.crt;
-        else openssl x509 -req -days 1825 -CA $3.crt -CAkey $3.key -set_serial $4 -in $1.csr -out $1.crt
+        else openssl x509 -extensions usr_cert -req -days 1825 -CA $3.crt -CAkey $3.key -set_serial $4 -in $1.csr -out $1.crt
     fi
     
     rm $1.csr
@@ -83,14 +83,14 @@ echo -e "hostssl all $USER 127.0.0.1/32 cert" > $DB_PATH/pg_hba.conf
 
 # Move files to Postgres
 if [ $1 == $INTERMEDIATE ] || [ $1 == $CLIENT_IM ]
-    then cat $CLIENT_IM.crt $CA.crt > "$DB_PATH/$CA.crt";
+    then cat $CLIENT_IM.crt $SERVER_IM.crt $CA.crt > "$DB_PATH/$CA.crt";
     else cp $CA.crt "$DB_PATH/$CA.crt";
 fi
 
 cp $SERVER.key "$DB_PATH/$SERVER.key"
 
 if [ $1 == $INTERMEDIATE ] || [ $1 == $SERVER_IM ]
-    then cat $SERVER.crt $SERVER_IM.crt > "$DB_PATH/$SERVER.crt";
+    then cat $SERVER.crt > "$DB_PATH/$SERVER.crt";
     else cat $SERVER.crt > "$DB_PATH/$SERVER.crt";
 fi
 
@@ -100,7 +100,7 @@ chmod 600 "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 rm "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
 
 # Move files to user
-cat $CA.crt > "$USER_PATH/$ROOT.crt";
+cat $CLIENT_IM.crt $SERVER_IM.crt $CA.crt > "$USER_PATH/$ROOT.crt";
 
 cp $CLIENT.key "$USER_PATH/$POSTGRESQL.key"
 
@@ -115,7 +115,7 @@ chmod 600 "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTG
 $DB_BIN/pg_ctl start -D $DB_PATH -l $DB_PATH/postgresql.log -w -s -o " -c unix_socket_directories=$DB_PATH -c ssl=on -c ssl_ca_file=ca.crt -c ssl_cert_file=server.crt -c ssl_key_file=server.key"
 
 # Now try to connect
-echo "select count(*) from pg_database" | psql -h $SERVER_HOST postgres
+echo "select count(*) from pg_database" | psql "postgresql://$SERVER_HOST/postgres?sslmode=require"
 
 #drop the cluster
 $DB_BIN/pg_ctl stop -D $DB_PATH -m fast -w -s
