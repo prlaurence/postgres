@@ -32,11 +32,13 @@ function cert
     openssl req -nodes -new -x509 -keyout $1.key -out $1.crt \
        -subj "$SUBJ$2"
 
-    openssl req -new -sha256 -days 1825 -key $1.key -out $1.csr \
+    openssl req -new -days 1825 -key $1.key -out $1.csr \
       -subj "$SUBJ$2"
 
-    openssl x509 -req -days 1825 -CA $3.crt -CAkey $3.key -set_serial $4 \
-            -in $1.csr -out $1.crt
+    if [ $4 == "ca" ]
+        then openssl ca -extensions v3_ca -notext -days 1825 -cert $3.crt -keyfile $3.key -in $1.csr -out $1.crt;
+        else openssl x509 -req -days 1825 -CA $3.crt -CAkey $3.key -set_serial $4 -in $1.csr -out $1.crt
+    fi
     
     rm $1.csr
 }  
@@ -45,12 +47,12 @@ function cert
 rm *
 
 # Generate self-signed root CA cert
-openssl req -nodes -new -sha256 -x509 -keyout $CA.key -out $CA.crt \
+openssl req -extensions v3_ca -nodes -new -x509 -keyout $CA.key -out $CA.crt \
    -subj "$SUBJ$ROOT_CNAME"
 
 # Generate intermediate server cert
 if [ $1 == $INTERMEDIATE ] || [ $1 == $SERVER_IM ]
-    then cert $SERVER_IM "$SERVER-$IM_CNAME" $CA "01";
+    then cert $SERVER_IM "$SERVER-$IM_CNAME" $CA "ca";
 fi
 
 # Generate server cert
@@ -61,7 +63,7 @@ fi
 
 # Generate intermediate client cert
 if [ $1 == $INTERMEDIATE ] || [ $1 == $CLIENT_IM ]
-    then cert $CLIENT_IM "$CLIENT-$IM_CNAME" $CA "04";
+    then cert $CLIENT_IM "$CLIENT-$IM_CNAME" $CA "ca";
 fi
 
 # Generate client cert
@@ -80,7 +82,10 @@ $DB_BIN/initdb -D $DB_PATH -A trust
 echo -e "hostssl all $USER 127.0.0.1/32 cert" > $DB_PATH/pg_hba.conf
 
 # Move files to Postgres
-cp $CA.crt "$DB_PATH/$CA.crt"
+if [ $1 == $INTERMEDIATE ] || [ $1 == $CLIENT_IM ]
+    then cat $CLIENT_IM.crt $CA.crt > "$DB_PATH/$CA.crt";
+    else cp $CA.crt "$DB_PATH/$CA.crt";
+fi
 
 cp $SERVER.key "$DB_PATH/$SERVER.key"
 
@@ -95,7 +100,7 @@ chmod 600 "$DB_PATH/$CA.crt" "$DB_PATH/$SERVER.key" "$DB_PATH/$SERVER.crt"
 rm "$USER_PATH/$ROOT.crt" "$USER_PATH/$POSTGRESQL.key" "$USER_PATH/$POSTGRESQL.crt"
 
 # Move files to user
-cp $CA.crt "$USER_PATH/$ROOT.crt";
+cat $CA.crt > "$USER_PATH/$ROOT.crt";
 
 cp $CLIENT.key "$USER_PATH/$POSTGRESQL.key"
 
